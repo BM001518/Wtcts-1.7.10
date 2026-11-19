@@ -1,7 +1,28 @@
 // Add any additional repositories for your dependencies here.
 repositories {
+    // scala-parser-combinators_2.11:1.0.1 (a launcher dependency of the decompile step) is not on
+    // Maven Central nor on the GTNH nexus; the only copy is on the old GTNH mirror
+    // gregtech.overminddl1.com, which times out from GitHub's runners. The artifact is vendored under
+    // libs/maven (see the README there) so builds work offline and in CI.
+    maven {
+        name = "vendored"
+        url = uri("${rootDir}/libs/maven")
+        content {
+            includeModule("org.scala-lang", "scala-parser-combinators_2.11")
+        }
+    }
     mavenLocal()
     maven {
         url = uri("https://jitpack.io")
+    }
+}
+
+// Keep every other repository away from that one artifact, so Gradle never waits for the dead mirror
+// to time out. Everything else still resolves from the usual GTNH/maven-central repositories.
+repositories.withType(MavenArtifactRepository).configureEach { repo ->
+    if (repo.name != "vendored") {
+        repo.content {
+            excludeModule("org.scala-lang", "scala-parser-combinators_2.11")
+        }
     }
 }
