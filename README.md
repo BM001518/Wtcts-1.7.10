@@ -21,11 +21,24 @@ _Bundles AE2's terminal, crafting, pattern encoding and pattern management into 
 
 ---
 
-## 下载与安装
+## 获取与安装
 
-1. 从 [Releases](https://github.com/BM001518/Wtcts-1.7.10/releases) 下载 `wtct-1.1.0.jar`。
+**方式一：下载现成的 jar**
+
+1. 打开 [Releases](https://github.com/BM001518/Wtcts-1.7.10/releases)，下载最新版本的 `wtct-<版本>.jar`。
 2. 丢进整合包的 `mods/` 目录，启动游戏。
 3. 依赖由 **GTNH 2.9.0-RC-1** 整合包自带，不需要额外安装。
+
+每个 Release 附带的文件：
+
+| 文件                             | 用途                                           |
+| -------------------------------- | ---------------------------------------------- |
+| `wtct-<版本>.jar`                | 正常游玩用这个                                 |
+| `wtct-<版本>-dev.jar`            | 未降级字节码的开发版，排查崩溃时对日志更好读   |
+| `wtct-<版本>-sources.jar`        | 源码，便于对照与调试                           |
+| `wtct-<版本>-predowngrade.jar`   | JvmDowngrader 处理前的中间产物，一般不用下载   |
+
+**方式二：自己构建**（见下方 [构建](#构建)），产物同样在 `build/libs/` 里。
 
 > `modid`、包名与物品注册名都与上游一致，所以**不能与上游 `1.0.63-rc1` 的 jar 同时安装**；替换时删掉旧 jar。存档、终端 NBT、网络枢纽数据可直接沿用。
 
@@ -39,6 +52,16 @@ _Bundles AE2's terminal, crafting, pattern encoding and pattern management into 
 - **升级卡** —— 导入／导出／磁铁／方块拾取／量子桥／能源共六张，移植自 WCWT / AE2WTLib。
 - **ME 无线收发器** —— 为无线终端提供跨维度网络接入。
 - **终端充电** —— 手持终端可在 GregTech 机器上充电（不限电压档），也可走 IndustrialCraft 2 通道。
+
+---
+
+## 使用
+
+- 物品都在创造模式物品栏的 **AE2 Thing** 分类里，也可以在 NEI 里搜 `wtct`。
+- 综合工作终端要接进 ME 网络：手持终端，配合一个已链接的 **ME 无线收发器**。
+- 按键在「选项 → 控制」里可改：`打开综合工作终端`、`打开选择终端菜单`、`切换磁铁卡吸引方式`。
+- 样板编码后会自动上传样板；按 **Shift + 编码键** 取回上一次上传的样板。搜索框留空时，上传落点是样板缓存区。
+- 扩展总线用**速度卡**调节拍：有货时逐级提速到 1 tick，空闲时回到 60 tick。
 
 ---
 
@@ -122,15 +145,35 @@ _Bundles AE2's terminal, crafting, pattern encoding and pattern management into 
 
 ## 构建
 
+需要 **JDK 25**（由 `gradle/gradle-daemon-jvm.properties` 指定），构建脚本再用 JVM Downgrader 把字节码降到 Java 8。还需要能访问 GTNH Maven 与 GitHub 下载依赖。
+
 ```bash
-./gradlew build
+git clone git@github.com:BM001518/Wtcts-1.7.10.git   # 没有 SSH 就用 https 地址
+cd Wtcts-1.7.10
+./gradlew build                                      # Windows: .\gradlew.bat build
 ```
 
-产物位于 `build/libs/wtct-<版本>.jar`（另有两个 `-dev`／`-sources` 附带产物，发 Release 只需要不带后缀的那个）。
+产物在 `build/libs/`：
 
-- 需要 **JDK 25** 跑 Gradle daemon（`gradle/gradle-daemon-jvm.properties` 指定），构建脚本用 JVM Downgrader 把字节码降到 Java 8。
-- 首次构建需要能访问 GTNH Maven / GitHub 下载依赖；依赖齐了之后可以加 `--offline` 完全离线构建。
+- `wtct-<版本>.jar` —— 发布、游玩用这个
+- `wtct-<版本>-dev.jar`、`wtct-<版本>-sources.jar`、`wtct-<版本>-predowngrade.jar` —— 调试与存档留用
+
+网络提示：
+
+- 国内直连 GTNH Maven / GitHub 常常被重置，给 Gradle 配代理最省事。写进 `~/.gradle/gradle.properties`（或项目根的 `gradle.properties`）：
+
+  ```properties
+  systemProp.http.proxyHost=127.0.0.1
+  systemProp.http.proxyPort=7890
+  systemProp.https.proxyHost=127.0.0.1
+  systemProp.https.proxyPort=7890
+  ```
+
+- 依赖下载过一次之后，可以 `./gradlew --offline build` 完全离线构建；但**首次**离线会因缺 `jvmdowngrader` 依赖而失败。
+
 - **`libs/` 目录必须保留。** 其中 `hbmaeaddon-1.4-dev.jar` 与 `programmablehatches-0.1.3p50-dev.jar` 是不在 Maven 上的编译期依赖，缺失会直接编译失败。
+
+CI：`.github/workflows/build.yml` 在 push / PR 时构建并上传 jar；`.github/workflows/release-tags.yml` 在推 tag 时自动建 Release（正文取 `.github/release-notes/<tag>.md`）。
 
 ---
 
