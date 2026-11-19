@@ -21,6 +21,7 @@ import com.asdflj.wtct.client.gui.nethub.IListItem;
 import com.asdflj.wtct.client.gui.nethub.IconButton;
 import com.asdflj.wtct.client.gui.nethub.ListCtrl;
 import com.asdflj.wtct.client.gui.nethub.ListItem;
+import com.asdflj.wtct.common.nethub.Group;
 import com.asdflj.wtct.common.nethub.User;
 import com.asdflj.wtct.util.NameConst;
 
@@ -40,6 +41,8 @@ public class GuiNetworkHubUser extends GuiContainer {
 
     private ListCtrl<User> listCtrl;
     private IconButton netScreen;
+    private Group boundGroup;
+    private List<User> boundUsers;
 
     public GuiNetworkHubUser(ContainerNetworkHub containerNetworkHub) {
         super(containerNetworkHub);
@@ -56,9 +59,36 @@ public class GuiNetworkHubUser extends GuiContainer {
 
         this.buttonList.add(this.netScreen);
 
-        List<User> users = this.containerNetworkHub.getGroup()
-            .getUsers();
-        this.listCtrl = new ListCtrl<User>(this.mc, guiLeft + 20, guiTop + 15, 165, 136, 20, users) {
+        this.bindGroup();
+    }
+
+    /**
+     * Rebinds the list to the container's group. The group (and its user list) is only filled in once the first sync
+     * packet arrives, which is after initGui, so the list has to be created against whatever is current.
+     */
+    private void bindGroup() {
+        this.boundGroup = this.containerNetworkHub.getGroup();
+        this.boundUsers = this.boundGroup.getUsers();
+        this.listCtrl = createList(this.boundUsers);
+
+        this.listCtrl.setScroll(true);
+        this.listCtrl.setScrollByItem(true);
+        this.listCtrl.setTooltipRenderer(
+            (lines, mouseX, mouseY) -> this.drawHoveringText(lines, mouseX, mouseY, this.fontRendererObj));
+        this.listCtrl.refresh();
+    }
+
+    @Override
+    public void updateScreen() {
+        super.updateScreen();
+        Group group = this.containerNetworkHub.getGroup();
+        if (this.listCtrl == null || group != this.boundGroup || this.boundUsers != group.getUsers()) {
+            this.bindGroup();
+        }
+    }
+
+    private ListCtrl<User> createList(List<User> users) {
+        return new ListCtrl<User>(this.mc, guiLeft + 20, guiTop + 15, 165, 136, 20, users) {
 
             @Override
             protected IListItem<User> getItem(Object id, String text, User o, int x, int y, int width, int height) {
@@ -128,12 +158,6 @@ public class GuiNetworkHubUser extends GuiContainer {
                 };
             }
         };
-
-        this.listCtrl.setScroll(true);
-        this.listCtrl.setScrollByItem(true);
-        this.listCtrl.setTooltipRenderer(
-            (lines, mouseX, mouseY) -> this.drawHoveringText(lines, mouseX, mouseY, this.fontRendererObj));
-        this.listCtrl.refresh();
     }
 
     @Override

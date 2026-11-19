@@ -1,0 +1,100 @@
+name: 问题报告
+description: 报告崩溃、报错或行为不符合预期
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先看一下 [docs/wtct-bugfix-pass.md](https://github.com/BM001518/Wtcts-1.7.10/blob/master/docs/wtct-bugfix-pass.md)，
+        里面记录了这一分支已经修过的所有问题。
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 问题描述
+      description: 发生了什么？涉及哪个界面、物品或机器？
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 一步一步写，能稳定复现最好。
+      placeholder: |
+        1. 合成一个综合终端
+        2. 打开后点「…」
+        3. 客户端崩溃
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 崩溃报告
+      description: 请粘贴 `logs/fml-client-latest.log` 中的相关片段（崩溃请附 `crash-reports/` 里的文件）。内容较长时建议用 https://gist.github.com/ 或网盘链接。
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 本模组版本
+      description: 见 `mods/` 里的 jar 名或 MC 的 Mods 列表。
+      placeholder: 1.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: pack
+    attributes:
+      label: 整合包版本
+      placeholder: GTNH 2.9.0-RC-1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: side
+    attributes:
+      label: 运行环境
+      options:
+        - 单机
+        - 服务端（多人）
+        - 单机 + 服务端（联机）
+    validations:
+      required: true
+
+  - type: textarea
+    id: save
+    attributes:
+      label: 存档情况
+      description: 新建存档就有问题，还是旧存档升级后出现？旧存档当时用的哪个版本？
+    validations:
+      required: false
+
+  - type: textarea
+    id: extras
+    attributes:
+      label: 相关附属模组
+      description: 除了整合包自带，还装了哪些与 AE2 / GT 相关的附属？
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已在最新版本上复现，且不是文档里已记录的问题
+          required: true
+        - label: 我确认日志里没有包含个人隐私信息（如不需要的路径、token）
+          required: false

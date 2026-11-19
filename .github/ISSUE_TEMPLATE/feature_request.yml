@@ -1,0 +1,54 @@
+name: 功能建议
+description: 想加一个功能，或现有功能用着不顺手
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提之前可以先看 [docs/wcwt-gap-analysis.md](https://github.com/BM001518/Wtcts-1.7.10/blob/master/docs/wcwt-gap-analysis.md)
+        与 [docs/wcwt-todo-checklist.md](https://github.com/BM001518/Wtcts-1.7.10/blob/master/docs/wcwt-todo-checklist.md)，
+        里面已经列了不少「与 WCWT 相比还缺什么」的条目。
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 想要什么
+      description: 一句话说清想要的功能或改动。
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: 解决什么问题
+      description: 现在是怎么做的？卡在哪一步？附上具体的使用场景（什么机器、什么配方、多少量）。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: upstream
+    attributes:
+      label: WCWT / AE2WTLib 里有这个功能吗
+      description: GTNH 1.7.10 的 WCWT 是 1.21 版，不少功能已有对照实现。
+      options:
+        - 有，行为可以参照
+        - 不确定
+        - 没有，是本仓库独有的需求
+    validations:
+      required: true
+
+  - type: textarea
+    id: how
+    attributes:
+      label: 期望的样子
+      description: 界面怎么摆、快捷键怎么按、数据保存在哪（会不会影响存档）。
+    validations:
+      required: false
+
+  - type: textarea
+    id: alt
+    attributes:
+      label: 备选方案 / 现状绕法
+    validations:
+      required: false

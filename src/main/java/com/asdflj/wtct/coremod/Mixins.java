@@ -16,6 +16,7 @@ public enum Mixins implements IMixins {
             "ae.MixinCraftingCPUCluster",
             "ae.MixinGuiCraftAmount",
             "ae.MixinGuiCraftConfirm",
+            "ae.MixinGuiCraftingStatus",
             "ae.MixinGuiMEMonitorable",
             "ae.MixinItemRepo",
             "ae.MixinContainerCraftAmount",
@@ -67,7 +68,19 @@ public enum Mixins implements IMixins {
         .setPhase(Phase.LATE)),
 
     VANILLA_NET_HANDLER(new MixinBuilder().addCommonMixins("vanilla.MixinNetHandlerPlayServer")
-        .setPhase(Phase.LATE));
+        .setPhase(Phase.LATE)),
+
+    // Cancels the displayGuiScreen call that would rebuild the comprehensive work terminal after an
+    // optimistic open, so the screen already on show takes the server's container instead (see
+    // OptimisticTerminalOpen.handOver). Client only: the server has no screens, and the target class
+    // only exists on the client.
+    //
+    // Minecraft is loaded long before mods are constructed, so this has to be an EARLY mixin: a LATE
+    // config is prepared after the target is already loaded and fails the whole client with
+    // MixinTargetAlreadyLoadedException. It also must not name a mod class - everything that needs one
+    // travels through com.asdflj.wtct.coremod.HandOver.
+    VANILLA_CLIENT(new MixinBuilder().addClientMixins("vanilla.MixinMinecraft")
+        .setPhase(Phase.EARLY));
 
     private final MixinBuilder builder;
 

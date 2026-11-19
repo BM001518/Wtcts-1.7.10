@@ -39,7 +39,10 @@ jobs:
             echo 17
             echo 21
             if [[ -f gradle/gradle-daemon-jvm.properties ]]; then
-              yq -pprops -oprops '.toolchainVersion' gradle/gradle-daemon-jvm.properties
+              # Read the Gradle daemon's JDK straight out of the properties file, so the workflow does
+              # not depend on whatever yq version (or absence of one) the runner image happens to have.
+              sed -n 's/^[[:space:]]*toolchainVersion[[:space:]]*=[[:space:]]*//p' \
+                gradle/gradle-daemon-jvm.properties | head -n1 | tr -d '[:space:]'
             fi
             echo EOF
           ) | tee -a "${GITHUB_OUTPUT}"

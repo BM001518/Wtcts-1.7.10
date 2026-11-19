@@ -2,6 +2,7 @@ package com.asdflj.wtct.loader;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
+import net.minecraft.client.resources.I18n;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
@@ -15,7 +16,11 @@ import org.lwjgl.input.Mouse;
 import com.asdflj.wtct.Wtct;
 import com.asdflj.wtct.api.InventoryActionExtend;
 import com.asdflj.wtct.api.WtctAPI;
+import com.asdflj.wtct.client.render.HotbarHint;
+import com.asdflj.wtct.common.item.card.CardTicker;
+import com.asdflj.wtct.network.CPacketCycleMagnetMode;
 import com.asdflj.wtct.network.CPacketInventoryActionExtend;
+import com.asdflj.wtct.util.BaublesUtil;
 import com.asdflj.wtct.util.BlockPos;
 import com.asdflj.wtct.util.Util;
 
@@ -32,14 +37,17 @@ public class KeybindLoader implements Runnable {
 
     public static KeyBinding openTerminalMenu;
     public static KeyBinding openComprehensiveWorkTerminal;
-    /** The two bindings' state on the previous input event, so only a fresh press fires - see onKeyInput. */
+    /** Cycles the magnet mode of the carried terminal, so the card does not need its screen to be opened. */
+    public static KeyBinding cycleMagnetMode;
+    /** The bindings' state on the previous input event, so only a fresh press fires - see onKeyInput. */
     private boolean menuWasDown;
     private boolean terminalWasDown;
+    private boolean magnetWasDown;
 
     @Override
     public void run() {
         // The backpack terminal and the dual interface terminal are no longer part of this mod, so neither is
-        // their keybinding; only the terminal menu and the comprehensive terminal itself remain.
+        // their keybinding; only the terminal menu, the comprehensive terminal itself and the magnet mode remain.
         openTerminalMenu = new KeyBinding(
             Wtct.MODID + ".key.open_terminal",
             Keyboard.CHAR_NONE,
@@ -50,6 +58,11 @@ public class KeybindLoader implements Runnable {
             Keyboard.CHAR_NONE,
             "itemGroup." + Wtct.MODID);
         ClientRegistry.registerKeyBinding(openComprehensiveWorkTerminal);
+        cycleMagnetMode = new KeyBinding(
+            Wtct.MODID + ".key.cycle_magnet_mode",
+            Keyboard.CHAR_NONE,
+            "itemGroup." + Wtct.MODID);
+        ClientRegistry.registerKeyBinding(cycleMagnetMode);
         FMLCommonHandler.instance()
             .bus()
             .register(this);
@@ -102,7 +115,50 @@ public class KeybindLoader implements Runnable {
                 .openComprehensiveWorkTerminal();
         }
         this.terminalWasDown = terminalDown;
+        final boolean magnetDown = cycleMagnetMode.isPressed();
+        if (magnetDown && !this.magnetWasDown) {
+            cycleMagnetMode(p);
+        }
+        this.magnetWasDown = magnetDown;
 
+    }
+
+    /**
+     * Cycles the magnet card's mode on the terminal the player carries.
+     *
+     * <p>
+     * The mode sits on the terminal's NBT, so the server owns the write; this side flips its own copy first so the
+     * tooltip and the hint answer the key immediately, and the server's write lands on the same value because it
+     * starts from the same old mode. Without that local flip a terminal worn in a Baubles slot would keep showing the
+     * previous mode until the next container sync, which is exactly the delay the magnet screen's own button avoids
+     * the same way. The answer is a hotbar hint rather than a notification card: the card queue animates, and this key
+     * is meant to be tapped repeatedly until the wanted mode comes up.
+     */
+    private static void cycleMagnetMode(final EntityClientPlayerMP player) {
+        final int slot = Util.findMagnetTerminal(player);
+        if (slot < 0) {
+            return;
+        }
+        final ItemStack terminal = BaublesUtil.getStackFromBridge(player, slot);
+        if (terminal == null) {
+            return;
+        }
+        final CardTicker.MagnetMode mode = CardTicker.MagnetMode.of(terminal)
+            .next();
+        CardTicker.MagnetMode.set(terminal, mode);
+        HotbarHint.show(I18n.format("wtct.magnet.cycle.hint", I18n.format(modeTranslationKey(mode))));
+        Wtct.proxy.netHandler.sendToServer(new CPacketCycleMagnetMode(slot));
+    }
+
+    private static String modeTranslationKey(final CardTicker.MagnetMode mode) {
+        switch (mode) {
+            case INV:
+                return "wtct.card.magnet.mode.inv";
+            case ME:
+                return "wtct.card.magnet.mode.me";
+            default:
+                return "wtct.card.magnet.mode.off";
+        }
     }
 
     private static ItemStack getTargetBlock(World world, EntityPlayer player) {

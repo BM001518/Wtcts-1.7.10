@@ -138,6 +138,11 @@ public class CPacketTerminalBtns implements IMessage {
                 if (c instanceof ContainerComprehensiveWorkTerminal cwt) {
                     cwt.cycleMagnetMode();
                 } else if (c instanceof ContainerCardMagnetConfig magnet) {
+                    // The screen turns the master switch on before flipping the mode, but it can only do that
+                    // on its own copy of the terminal item - the player's real stack is written here. Without
+                    // this the switch stayed off on the server and the ticker returned before reading the mode,
+                    // so a magnet switched off in the settings screen could never be revived from this button.
+                    magnet.enableMagnetSwitch();
                     magnet.cycleMagnetMode();
                 } else if (Boolean.getBoolean("wtct.debug.magnet")) {
                     System.out.println("[wtct-magnet] CycleMagnet arrived but openContainer is " + c);
@@ -169,13 +174,20 @@ public class CPacketTerminalBtns implements IMessage {
                 return null;
             }
             if (name.equals("CardConfig.PickBlock") && tag != null) {
-                // Sent by the pick-block key: the server re-checks reach and re-derives the block, so
-                // the client cannot ask for anything it could not have picked up itself.
+                // Sent by the pick-block key. The stack is resolved on the client, because
+                // Block#getPickBlock is client-only in 1.7.10 and calling it here threw
+                // NoSuchMethodError, killing the channel and disconnecting the player; the server
+                // only re-checks reach and that the answer is a sane stack.
+                ItemStack picked = null;
+                if (tag.hasKey("Picked")) {
+                    picked = ItemStack.loadItemStackFromNBT(tag.getCompoundTag("Picked"));
+                }
                 CardTicker.pickBlock(
                     ctx.getServerHandler().playerEntity,
                     tag.getInteger("x"),
                     tag.getInteger("y"),
-                    tag.getInteger("z"));
+                    tag.getInteger("z"),
+                    picked);
                 return null;
             }
             if (name.equals("CardConfig.SettingToggle")) {
@@ -284,6 +296,8 @@ public class CPacketTerminalBtns implements IMessage {
                     case "PatternManagement.SlotAction" -> cwt
                         .providerSlotAction(id, Integer.parseInt(value), tag != null && tag.getBoolean("quick"));
                     case "PatternManagement.UploadCache" -> cwt.uploadCacheToProvider(id);
+                    // Shift click on the encode key: take the last encoded-and-uploaded pattern back.
+                    case "PatternManagement.UndoUpload" -> cwt.undoLastUpload();
                     // The folded cell of a slot row: the provider's empty slots collapsed into one, so
                     // this is "put the pattern I am carrying into the first slot that is free".
                     case "PatternManagement.InsertFirstFree" -> cwt.insertIntoFirstFreeProviderSlot(id);

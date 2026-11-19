@@ -14,11 +14,9 @@ import com.asdflj.wtct.api.WirelessObject;
 import com.asdflj.wtct.client.gui.GuiCardConfig;
 import com.asdflj.wtct.client.gui.GuiCardMagnetConfig;
 import com.asdflj.wtct.client.gui.GuiCellLink;
-import com.asdflj.wtct.client.gui.GuiComprehensiveCraftingStatus;
 import com.asdflj.wtct.client.gui.GuiComprehensiveWorkTerminal;
 import com.asdflj.wtct.client.gui.GuiCraftAmount;
 import com.asdflj.wtct.client.gui.GuiCraftConfirm;
-import com.asdflj.wtct.client.gui.GuiCraftingStatus;
 import com.asdflj.wtct.client.gui.GuiExIOBus;
 import com.asdflj.wtct.client.gui.GuiExStorageBus;
 import com.asdflj.wtct.client.gui.GuiNetworkHubCore;
@@ -55,6 +53,7 @@ import com.google.common.collect.ImmutableList;
 
 import appeng.api.exceptions.AppEngException;
 import appeng.api.storage.ITerminalHost;
+import appeng.client.gui.implementations.GuiCraftingStatus;
 import appeng.container.AEBaseContainer;
 import appeng.container.ContainerOpenContext;
 import appeng.container.implementations.ContainerCraftAmount;
@@ -251,7 +250,7 @@ public enum GuiType {
 
         @Override
         protected Object createClientGui(EntityPlayer player, ITerminalHost inv) {
-            return new GuiComprehensiveCraftingStatus(player.inventory, inv);
+            return new GuiCraftingStatus(player.inventory, inv);
         }
     }),
     /**

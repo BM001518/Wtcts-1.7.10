@@ -28,9 +28,30 @@ public final class ExBusSlots {
      */
     public static final int MIN_FLUID_TRANSFER = 1000;
 
+    /**
+     * Highest amount a single fluid pass may ask for. One below {@link Integer#MAX_VALUE} on purpose:
+     * AE2's {@code AdaptorFluidHandler} short-circuits the accept path when the stack size equals
+     * exactly {@code Integer.MAX_VALUE}, so a budget clamped there would export nothing at all.
+     */
+    public static final int MAX_FLUID_TRANSFER = Integer.MAX_VALUE - MIN_FLUID_TRANSFER;
+
     /** The budget a fluid slot moves this tick: the shared item budget, one bucket per item unit. */
     public static long fluidTransferBudget(final long itemBudget) {
-        return Math.min(itemBudget * MIN_FLUID_TRANSFER, Integer.MAX_VALUE);
+        return Math.min(itemBudget * MIN_FLUID_TRANSFER, MAX_FLUID_TRANSFER);
+    }
+
+    /**
+     * Turns a drained millibucket amount back into the item-unit budget it cost, one unit per bucket
+     * and rounded up so a partial bucket still costs one. Without this conversion the bucket-scaled
+     * drain would be subtracted from an item counter and a single filter slot would spend the whole
+     * tick's budget.
+     */
+    public static int fluidBudgetSpent(final long millibuckets) {
+        if (millibuckets <= 0) {
+            return 0;
+        }
+        final long buckets = (millibuckets + MIN_FLUID_TRANSFER - 1) / MIN_FLUID_TRANSFER;
+        return (int) Math.min(buckets, Integer.MAX_VALUE);
     }
 
     /**

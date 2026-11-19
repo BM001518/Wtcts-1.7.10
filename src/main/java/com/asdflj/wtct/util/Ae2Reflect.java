@@ -64,6 +64,7 @@ public class Ae2Reflect {
     private static final Field fInvTracker_z;
     private static final Field fInvTracker_dim;
     private static final Field fInvTracker_side;
+    private static final Field fInvTracker_shouldDisplay;
     private static final Method mInvTracker_updateNBT;
     private static final Field fCraftingJobV2_callback;
     private static final Field fGrid_myStorage;
@@ -102,6 +103,8 @@ public class Ae2Reflect {
         fInvTracker_z = field(INV_TRACKER, "z");
         fInvTracker_dim = field(INV_TRACKER, "dim");
         fInvTracker_side = field(INV_TRACKER, "side");
+        // The interface's own "show in interface terminal" switch, as the row cached it.
+        fInvTracker_shouldDisplay = field(INV_TRACKER, "shouldDisplay");
         mInvTracker_updateNBT = method(INV_TRACKER, "updateNBT");
         mSlotCraftingTerm_makeItem = method(
             "appeng.container.slot.SlotCraftingTerm",
@@ -189,6 +192,46 @@ public class Ae2Reflect {
     /** {@code InvTracker#name} - the row's display name. */
     public static String getTrackedName(Object tracker) {
         return tracker == null || fInvTracker_name == null ? null : readField(tracker, fInvTracker_name);
+    }
+
+    /**
+     * {@code InvTracker#shouldDisplay} - false when the interface is switched out of AE2's interface
+     * terminal (the "show in interface terminal" toggle in the interface's own GUI).
+     *
+     * <p>
+     * AE2 keeps tracking hidden interfaces - it has to, their patterns still have to be found - so a
+     * caller that walks {@link #getTracked} sees them as well. Everything the player is offered has to
+     * go through this flag: an upload that picked a hidden interface put the pattern somewhere the
+     * terminal never shows, which reads as "the upload went nowhere".
+     *
+     * <p>
+     * A build of AE2 without that toggle has nothing hidden, so the answer is true; a failure to read
+     * the field fails the same way rather than hiding rows the player can see.
+     */
+    public static boolean isTrackedVisible(Object tracker) {
+        if (tracker == null) {
+            return false;
+        }
+        final Field f = fInvTracker_shouldDisplay != null ? fInvTracker_shouldDisplay
+            : findField(tracker.getClass(), "shouldDisplay");
+        if (f == null) {
+            return true;
+        }
+        try {
+            final Object value = f.get(tracker);
+            return !(value instanceof Boolean) || (Boolean) value;
+        } catch (final Throwable ignored) {
+            return true;
+        }
+    }
+
+    /** One field by name, or null when this class does not have it. Never throws. */
+    private static Field findField(final Class<?> owner, final String name) {
+        try {
+            return reflectField(owner, name);
+        } catch (final Throwable ignored) {
+            return null;
+        }
     }
 
     /** {@code InvTracker#x/y/z/dim} - where the row's interface sits, as {@code {x, y, z, dim}}. */

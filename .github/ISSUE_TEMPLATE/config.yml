@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用说明与文档
+    url: https://github.com/BM001518/Wtcts-1.7.10/blob/master/README.md
+    about: README 与 docs/ 下的文档说明了用法、构建方式和已修过的问题。
+  - name: 与 GTNH 整合包 / AE2 本体相关的问题
+    url: https://github.com/GTNewHorizons/GT-New-Horizons-Modpack/issues
+    about: AE2 本体、GT 本体或整合包配置的问题请报给 GTNH。

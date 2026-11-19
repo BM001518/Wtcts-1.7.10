@@ -29,6 +29,9 @@ public class SPacketMEFluidInvUpdate extends SPacketMEBaseInvUpdate implements I
             final GuiScreen gs = Minecraft.getMinecraft().currentScreen;
             if (gs instanceof IGuiMonitorTerminal gpt) {
                 gpt.postStackUpdate(message.list);
+                // The screens that follow a terminal (the optimistic screen being replaced by the real
+                // one) would otherwise start from an empty repo and have to wait for the next push.
+                EarlyTerminalLists.stashFluidStacks(message.list);
             } else {
                 // Same race as the item list (see EarlyTerminalLists): the fluid push that loses the
                 // window-opening race used to be dropped, leaving the fluid list empty until the

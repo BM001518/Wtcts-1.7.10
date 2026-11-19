@@ -88,11 +88,9 @@ public abstract class BaseBackpackHandler implements IInventory {
         if (itemLimit <= 1) {
             return itemLimit;
         }
-        int inventoryLimit = this.getInventoryStackLimit();
-        if (inventoryLimit > itemLimit) {
-            return inventoryLimit;
-        }
-        return Math.min(itemLimit, inventoryLimit);
+        // Min, not max: a 64-limit backpack inventory must still cap a 16-max item (ender pearl, egg, sign)
+        // at 16, otherwise an insert writes 64 into one slot.
+        return Math.min(itemLimit, this.getInventoryStackLimit());
     }
 
     private int getInsertableAmount(int slot, ItemStack stack) {

@@ -3,10 +3,14 @@ package com.asdflj.wtct.common.parts;
 import static appeng.util.item.AEFluidStackType.FLUID_STACK_TYPE;
 import static appeng.util.item.AEItemStackType.ITEM_STACK_TYPE;
 
+import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 import javax.annotation.Nullable;
 
@@ -69,15 +73,19 @@ import appeng.util.prioitylist.PrecisePriorityList;
 
 /**
  * The ME extended storage bus: AE2's storage bus with a filter grid that grows to 63 slots and which exposes the faced
- * inventory as item storage and fluid storage at the same time, the way AE2 1.21's bus does.
+ * inventory as item storage, fluid storage and - on GTNH builds whose AE2 carries Thaumic Energistics - essentia
+ * storage at the same time, the way AE2 1.21's bus does.
  *
  * <p>
  * rv3's {@link PartStorageBus} hardwires its single handler to the item stack type, and the whole machinery around it
  * (the memoized handler build, the delayed cache resets, the change forwarding) hangs off private fields. This class
  * therefore keeps the parent's one - which stays inert, since every path that would run it is overridden - and carries
- * the machinery over once per stack type: one state for the item view of the faced inventory, one for the fluid view.
- * The shared 63 slot config grid feeds both partitions; slots parked with a fluid become part of the fluid partition
- * only, everything else the parent's logic already does is inherited as is.
+ * the machinery over once per stack type: item, fluid, essentia, and any type the AE2 build registers later. The views
+ * are created on first ask, so a network that knows an extra stack type (Thaumic Energistics' essentia is added through
+ * {@code AEStackTypeRegistry}) gets a working bus for it without this class having to name it.
+ * The shared 63 slot config grid feeds all partitions; slots parked with a fluid become part of the fluid partition
+ * only, slots holding any other type go to that type's partition, everything else the parent's logic already does is
+ * inherited as is.
  */
 public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost {
 
@@ -102,13 +110,24 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
         }
     }
 
+    /**
+     * The storage bus handler class, looked up once: GTNH's newer AE2 takes a reshuffle-access supplier as a third
+     * constructor argument, the build this mod is compiled against does not. Reflection keeps one jar working on both.
+     */
+    private static final Constructor<?> BUS_HANDLER_CTOR = findBusHandlerConstructor();
+
     private final BaseActionSource mySrc = new MachineSource(this);
-    private final ExSideState itemState = new ExSideState(ITEM_STACK_TYPE);
-    private final ExSideState fluidState = new ExSideState(FLUID_STACK_TYPE);
+    /**
+     * One view per stack type the network asks about, in ask order. Seeded lazily: the item view always exists,
+     * fluid and anything else (essentia, ...) appear when the network first requests that type.
+     */
+    private final Map<IAEStackType<?>, ExSideState> states = new LinkedHashMap<>();
 
     @Reflected
     public PartExStorageBus(final ItemStack is) {
         super(is);
+        // The item view always exists - rv3's inherited hooks address it - and keeps its stable order at the front.
+        this.stateFor(ITEM_STACK_TYPE);
     }
 
     @Override
@@ -165,7 +184,7 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
      */
     @Override
     public MEInventoryHandler getInternalHandler() {
-        return this.getExHandler(this.itemState);
+        return this.getExHandler(ITEM_STACK_TYPE);
     }
 
     /** The handler exposing the faced inventory as the given stack type, built on first ask. */
@@ -176,7 +195,12 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
 
     @Override
     public boolean isValid(final Object verificationToken) {
-        return this.itemState.handler == verificationToken || this.fluidState.handler == verificationToken;
+        for (final ExSideState state : this.states.values()) {
+            if (state.handler == verificationToken) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -291,29 +315,37 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
         return new TickingRequest(
             TickRates.StorageBus.getMin(),
             TickRates.StorageBus.getMax(),
-            this.itemState.monitor == null && this.fluidState.monitor == null,
+            this.allMonitorsAsleep(),
             true);
     }
 
+    /** True when no view has a target monitor to poll, so the device may sleep. */
+    private boolean allMonitorsAsleep() {
+        for (final ExSideState state : this.states.values()) {
+            if (state.monitor != null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /**
-     * Both views tick on the one device: pending rebuilds run per side, both monitors poll, and the more awake of the
-     * two tick verdicts wins so one sleeping view cannot starve the other.
+     * Every view ticks on the one device: pending rebuilds run per side, all monitors poll, and the most awake tick
+     * verdict wins so one sleeping view cannot starve another.
      */
     @Override
     public TickRateModulation tickingRequest(final IGridNode node, final int ticksSinceLastCall) {
-        if (this.itemState.resetLogic != 0) {
-            this.resetExCache(this.itemState);
-        }
-        if (this.fluidState.resetLogic != 0) {
-            this.resetExCache(this.fluidState);
+        for (final ExSideState state : this.states.values()) {
+            if (state.resetLogic != 0) {
+                this.resetExCache(state);
+            }
         }
 
         TickRateModulation result = TickRateModulation.SLEEP;
-        if (this.itemState.monitor != null) {
-            result = this.moreAwake(result, this.itemState.monitor.onTick());
-        }
-        if (this.fluidState.monitor != null) {
-            result = this.moreAwake(result, this.fluidState.monitor.onTick());
+        for (final ExSideState state : this.states.values()) {
+            if (state.monitor != null) {
+                result = this.moreAwake(result, state.monitor.onTick());
+            }
         }
         return result;
     }
@@ -358,7 +390,7 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
     }
 
     /**
-     * Requests a rebuild of both views and wakes the device. {@code fullReset} also drops the memo hashes; a neighbor
+     * Requests a rebuild of every view and wakes the device. {@code fullReset} also drops the memo hashes; a neighbor
      * update must not downgrade a pending configuration-driven full reset.
      */
     private void resetEx(final boolean fullReset) {
@@ -373,8 +405,9 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
             return;
         }
 
-        this.bumpLogic(this.itemState, fullReset);
-        this.bumpLogic(this.fluidState, fullReset);
+        for (final ExSideState state : this.states.values()) {
+            this.bumpLogic(state, fullReset);
+        }
 
         try {
             this.getProxy()
@@ -458,7 +491,7 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
             return state.handler;
         }
 
-        final boolean wasSleeping = this.itemState.monitor == null && this.fluidState.monitor == null;
+        final boolean wasSleeping = this.allMonitorsAsleep();
 
         state.cached = true;
         final TileEntity self = this.getHost()
@@ -478,12 +511,16 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
         state.handler = null;
         state.monitor = null;
         state.readOncePass = true;
+        // Only a target that registers an external storage handler for this type can ever expose it; without one
+        // there is nothing to wait for, and scheduling a retry per type would just churn the tick queue.
+        boolean typeIsOffered = false;
         if (target != null) {
             final IExternalStorageHandler esh = AEApi.instance()
                 .registries()
                 .externalStorage()
                 .getHandler(target, side.getOpposite(), state.type, this.mySrc);
             if (esh != null) {
+                typeIsOffered = true;
                 final IMEInventory inv = esh.getInventory(target, side.getOpposite(), state.type, this.mySrc);
 
                 if (inv instanceof IStorageBusMonitor<?>m) {
@@ -501,7 +538,7 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
                 }
 
                 if (inv != null) {
-                    final MEInventoryHandler handler = new StorageBusInventoryHandler<>(inv, state.type);
+                    final MEInventoryHandler handler = createBusHandler(inv, state.type);
 
                     final AccessRestriction currentAccess = (AccessRestriction) this.getConfigManager()
                         .getSetting(Settings.ACCESS);
@@ -535,15 +572,19 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
             }
         }
 
-        if (state.handler == null && target != null) {
-            // The neighbor exists but may not expose storage until its placement initialization finishes.
+        if (state.handler == null && target != null && typeIsOffered) {
+            // The neighbor exists and offers this type, but may not expose storage until its placement
+            // initialization finishes.
             state.cached = false;
             this.scheduleDelayedCacheReset(state);
+        } else if (state.handler == null && target != null) {
+            // Nothing offers this type at this position: cache the empty answer until the target changes.
+            state.cached = true;
         }
 
-        // update sleep state... the device sleeps only when both views are monitor-less, and wakes the
-        // moment either grows one.
-        final boolean sleeping = this.itemState.monitor == null && this.fluidState.monitor == null;
+        // update sleep state... the device sleeps only when no view has a monitor, and wakes the
+        // moment one grows one.
+        final boolean sleeping = this.allMonitorsAsleep();
         if (wasSleeping != sleeping) {
             try {
                 final ITickManager tm = this.getProxy()
@@ -566,14 +607,61 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
     }
 
     /**
-     * Builds the view's partition from the shared config grid. The two views read different slots out of the same grid:
-     * fluid slots - parked as fluid stacks, however they arrived - belong to the fluid partition, everything else to
-     * the item one. An ore filter replaces the item partition wholesale, as rv3's does; fluids keep their exact
-     * partition since 1.7.10 fluids have no fuzzy or ore-dict notion.
+     * Builds a storage bus handler around the view's inventory. GTNH's newer AE2 wants a reshuffle-access supplier as
+     * a third constructor argument; this mod compiles against a build that has only the two-argument one, and the
+     * constructor is the single thing that changed between them, so it is resolved once and both shapes are tried.
+     * The supplier returns READ_WRITE, i.e. no restriction, which is exactly what the older constructor implied.
+     */
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    private static MEInventoryHandler createBusHandler(final IMEInventory inv, final IAEStackType<?> type) {
+        if (BUS_HANDLER_CTOR != null) {
+            final Supplier<AccessRestriction> reshuffle = () -> AccessRestriction.READ_WRITE;
+            try {
+                if (BUS_HANDLER_CTOR.getParameterCount() == 3) {
+                    return (MEInventoryHandler) BUS_HANDLER_CTOR.newInstance(inv, type, reshuffle);
+                }
+                return (MEInventoryHandler) BUS_HANDLER_CTOR.newInstance(inv, type);
+            } catch (final ReflectiveOperationException e) {
+                // Fall through: report and use the constructor the mod was compiled against.
+                e.printStackTrace();
+            }
+        }
+
+        return new StorageBusInventoryHandler(inv, type);
+    }
+
+    /** The storage bus handler constructor of the running AE2 build, preferring the richer three-argument shape. */
+    @Nullable
+    private static Constructor<?> findBusHandlerConstructor() {
+        try {
+            final Class<?> handlerClass = Class.forName("appeng.me.storage.StorageBusInventoryHandler");
+            Constructor<?> twoArgument = null;
+            for (final Constructor<?> candidate : handlerClass.getConstructors()) {
+                final Class<?>[] parameters = candidate.getParameterTypes();
+                if (parameters.length == 3 && Supplier.class.isAssignableFrom(parameters[2])) {
+                    return candidate;
+                }
+                if (parameters.length == 2) {
+                    twoArgument = candidate;
+                }
+            }
+            return twoArgument;
+        } catch (final ClassNotFoundException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Builds the view's partition from the shared config grid. The views read different slots out of the same grid:
+     * fluid slots - parked as fluid stacks, however they arrived - belong to the fluid partition, a slot holding any
+     * other stack type feeds that type's partition, and everything else to the item one. An ore filter replaces the
+     * item partition wholesale, as rv3's does; the other types keep their exact partition, since 1.7.10 fluids and
+     * essentia have no fuzzy or ore-dict notion.
      */
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private void applyPartition(final ExSideState state, final MEInventoryHandler handler) {
-        final boolean hasOreFilter = this.getInstalledUpgrades(Upgrades.ORE_FILTER) > 0;
+        final boolean hasOreFilter = state.type == ITEM_STACK_TYPE
+            && this.getInstalledUpgrades(Upgrades.ORE_FILTER) > 0;
 
         if (!hasOreFilter) {
             final IItemList priorityList = state.type.createList();
@@ -608,7 +696,9 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
 
     /**
      * Picks the slots that belong to one view's partition. The item view ignores fluids however they are parked
-     * (real fluid stacks or item-wrapped fluid packets); the fluid view takes exactly those.
+     * (real fluid stacks or item-wrapped fluid packets); the fluid view takes exactly those; every other type takes the
+     * slots that hold a stack of that very type - essentia included, since Thaumic Energistics registers its stacks
+     * with the same shared config grid.
      */
     @Nullable
     private IAEStack<?> convertFor(final IAEStackType<?> type, @Nullable final IAEStack<?> is) {
@@ -629,18 +719,20 @@ public class PartExStorageBus extends PartStorageBus implements ExBusScreenHost 
                 ? ItemFluidPacket.getFluidAEStack(ais)
                 : null;
         }
-        return null;
+        return is.getStackType() == type ? is : null;
     }
 
-    @Nullable
+    /**
+     * The view for a stack type, created on first ask. Every type the network knows gets its own view, which is what
+     * lets an AE2 build with Thaumic Energistics' essentia type expose the faced inventory as essentia storage too.
+     */
     private ExSideState stateFor(final IAEStackType<?> type) {
-        if (type == ITEM_STACK_TYPE) {
-            return this.itemState;
+        ExSideState state = this.states.get(type);
+        if (state == null) {
+            state = new ExSideState(type);
+            this.states.put(type, state);
         }
-        if (type == FLUID_STACK_TYPE) {
-            return this.fluidState;
-        }
-        return null;
+        return state;
     }
 
     @Override

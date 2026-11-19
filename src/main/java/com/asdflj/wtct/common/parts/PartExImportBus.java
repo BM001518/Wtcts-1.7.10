@@ -242,7 +242,7 @@ public class PartExImportBus extends PartImportBus implements ExBusScreenHost {
         // Fluid works in bucket units - one item unit per bucket - so a base-speed bus drains one bucket per
         // tick and speed cards lift the fluid budget by the same factor they lift the item budget; the drain
         // spending the budget down past zero is what ends the slot's loop.
-        request.setStackSize(Math.min(afs.getStackSize(), ExBusSlots.fluidTransferBudget(this.itemToSend)));
+        request.setStackSize(ExBusSlots.fluidTransferBudget(this.itemToSend));
 
         final IAEFluidStack drained = Platform
             .poweredExtraction(energy, new MEMonitorIFluidHandler(tank, side), request, this.mySrc);
@@ -256,7 +256,7 @@ public class PartExImportBus extends PartImportBus implements ExBusScreenHost {
             return true;
         }
 
-        this.itemToSend -= (int) drained.getStackSize();
+        this.itemToSend -= ExBusSlots.fluidBudgetSpent(drained.getStackSize());
         this.worked = true;
         return this.itemToSend <= 0 || drained.getStackSize() < request.getStackSize();
     }

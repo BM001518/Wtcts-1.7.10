@@ -29,6 +29,13 @@ public class Config {
     /** Whether a hub may link to a hub in another dimension at all. */
     public static boolean netHubCanCrossDimension = true;
     public static boolean netHubShowNetworkUuid = false;
+    /** Log how long each stage of opening the terminal takes, on both sides (diagnostics only). */
+    public static boolean perfTiming = false;
+    /**
+     * Show the terminal screen before the server answers, so the wait for the window packet overlaps the
+     * screen being built instead of delaying it. Turn off if a pack's terminals misbehave on open.
+     */
+    public static boolean optimisticTerminalOpen = true;
 
     public static void run() {
         loadCategory();
@@ -93,6 +100,16 @@ public class Config {
             "Let a network hub link to a network hub in another dimension");
         netHubShowNetworkUuid = Config
             .getBoolean("Network hub show network uuid", Wtct.MODID, false, "Show the network uuid in WAILA");
+        perfTiming = Config.getBoolean(
+            "Terminal open timing",
+            Wtct.MODID,
+            false,
+            "Log how long each stage of opening the comprehensive work terminal takes, on both sides");
+        optimisticTerminalOpen = Config.getBoolean(
+            "Optimistic terminal open",
+            Wtct.MODID,
+            true,
+            "Show the comprehensive work terminal before the server answers; input is ignored until the real container arrives");
         if (Config.hasChanged()) Config.save();
     }
 

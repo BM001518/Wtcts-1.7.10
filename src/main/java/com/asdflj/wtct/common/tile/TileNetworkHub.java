@@ -48,6 +48,9 @@ public class TileNetworkHub extends AENetworkTile implements IPowerChannelState 
 
     private boolean isHead;
     private UUID networkUuid;
+    /** Who placed the block, kept for disk because the grid proxy's owner lives only as long as the proxy. */
+    @Nullable
+    private UUID ownerUuid;
     private boolean isConnected;
     /** Whether this hub sits on a powered ME network, synced to the client so the probe can be answered there. */
     private boolean online;
@@ -104,11 +107,12 @@ public class TileNetworkHub extends AENetworkTile implements IPowerChannelState 
         }
 
         if (this.isHead) {
-            if (this.isConnected) {
-                this.setConnected(
-                    !network.getReceivePos()
-                        .isEmpty());
-            }
+            // Recomputed every tick, not only while already true: a head whose chunk was unloaded comes back with
+            // isConnected false, and the old `if (this.isConnected)` guard meant it could never advertise the link
+            // again until something else set the flag.
+            this.setConnected(
+                !network.getReceivePos()
+                    .isEmpty());
             this.surplusChannels = Math.max(this.getMaxChannels() - this.getUsedChannels(), 0);
             this.sync();
         }
@@ -194,9 +198,12 @@ public class TileNetworkHub extends AENetworkTile implements IPowerChannelState 
         if (thatWorld == null || !thatWorld.blockExists(pos.getX(), pos.getY(), pos.getZ())) return;
         TileEntity tile = thatWorld.getTileEntity(pos.getX(), pos.getY(), pos.getZ());
         if (!(tile instanceof TileNetworkHub that)) {
-            // The head is gone; the network has nobody left to connect to.
-            NetHubStorage.get(thatWorld)
-                .removeNetwork(this.networkUuid);
+            // The head's chunk is loaded, so something was here and is gone now. Do not delete the network from a
+            // per-tick path: that used to wipe the name, the flags and every member's link because one receiver
+            // still pointed at an old position. Just stay unlinked and retry once a head shows up there again.
+            this.setConnected(false);
+            this.getProxy()
+                .setIdlePowerUsage(0);
             return;
         }
         IGridNode here = this.getActionableNode();
@@ -254,6 +261,33 @@ public class TileNetworkHub extends AENetworkTile implements IPowerChannelState 
         this.unsetAll();
     }
 
+    /**
+     * Deletes a network and drops every hub that was part of it, loaded or not. Deleting used to remove only the
+     * record and leave the hubs to notice on their own 20-tick cadence, so receivers kept bridging and drawing idle
+     * power (and kept claiming to be connected) after the network they belonged to no longer existed.
+     */
+    public static void teardownNetwork(final NetHubStorage storage, final Network network) {
+        BlockPosDim headPos = network.getSendPos();
+        if (headPos != null) {
+            World headWorld = DimensionManager.getWorld(headPos.getDimension());
+            if (headWorld != null && headWorld.blockExists(headPos.getX(), headPos.getY(), headPos.getZ())) {
+                TileEntity tile = headWorld.getTileEntity(headPos.getX(), headPos.getY(), headPos.getZ());
+                if (tile instanceof TileNetworkHub hub) {
+                    hub.unsetAll();
+                }
+            }
+        }
+        for (BlockPosDim pos : new HashSet<>(network.getReceivePos())) {
+            World thatWorld = DimensionManager.getWorld(pos.getDimension());
+            if (thatWorld == null || !thatWorld.blockExists(pos.getX(), pos.getY(), pos.getZ())) continue;
+            TileEntity tile = thatWorld.getTileEntity(pos.getX(), pos.getY(), pos.getZ());
+            if (tile instanceof TileNetworkHub hub) {
+                hub.unsetAll();
+            }
+        }
+        storage.removeNetwork(network.getUuid());
+    }
+
     /** Forgets the network locally and drops the grid connection, without touching the stored network. */
     public void unsetAll() {
         this.setHead(false);
@@ -284,19 +318,52 @@ public class TileNetworkHub extends AENetworkTile implements IPowerChannelState 
             this.setNetworkUuid(null);
             return;
         }
+        if (this.isHead) {
+            // AE2 destroys the shared grid connection when this node goes away, but each receiver still holds the
+            // dead GridConnection and only retries while that field is null - so the link never came back after the
+            // head's chunk unloaded once. Tell the loaded receivers to forget it; the ones in unloaded chunks do it
+            // themselves when their own chunk unloads.
+            for (BlockPosDim pos : new HashSet<>(network.getReceivePos())) {
+                World thatWorld = DimensionManager.getWorld(pos.getDimension());
+                if (thatWorld == null || !thatWorld.blockExists(pos.getX(), pos.getY(), pos.getZ())) continue;
+                TileEntity tile = thatWorld.getTileEntity(pos.getX(), pos.getY(), pos.getZ());
+                if (tile instanceof TileNetworkHub hub) {
+                    hub.dropStaleConnection();
+                }
+            }
+            network.getReceivePos()
+                .clear();
+            storage.markDirty();
+            // Keep isHead and networkUuid: the head has to know what it is when its chunk comes back.
+            return;
+        }
         network.removeReceivePos(
             new BlockPosDim(this.xCoord, this.yCoord, this.zCoord, this.worldObj.provider.dimensionId));
         storage.markDirty();
     }
 
+    /**
+     * Forgets a link that AE2 has already torn down (typically because the head's chunk unloaded). The field has to go
+     * back to null, because {@link #onTick()} only ever retries the connection from that state.
+     */
+    private void dropStaleConnection() {
+        this.connection = null;
+        this.setConnected(false);
+        this.getProxy()
+            .setIdlePowerUsage(0);
+        this.sync();
+    }
+
     @TileEvent(TileEventType.WORLD_NBT_READ)
     public void readFromNBT_NetHub(NBTTagCompound tag) {
         this.networkUuid = NetHubUtil.parseUuid(tag.getString("networkUuid"));
+        this.ownerUuid = NetHubUtil.parseUuid(tag.getString("ownerUuid"));
     }
 
     @TileEvent(TileEventType.WORLD_NBT_WRITE)
     public void writeToNBT_NetHub(NBTTagCompound tag) {
         if (this.networkUuid != null) tag.setString("networkUuid", this.networkUuid.toString());
+        if (this.ownerUuid != null) tag.setString("ownerUuid", this.ownerUuid.toString());
     }
 
     @TileEvent(TileEventType.NETWORK_WRITE)
@@ -319,8 +386,16 @@ public class TileNetworkHub extends AENetworkTile implements IPowerChannelState 
     }
 
     public void setOwner(EntityPlayer player) {
+        this.ownerUuid = player.getGameProfile()
+            .getId();
         this.getProxy()
             .setOwner(player);
+    }
+
+    /** The player who placed this hub, or null for hubs placed before the field was persisted. */
+    @Nullable
+    public UUID getOwnerUuid() {
+        return this.ownerUuid;
     }
 
     /**

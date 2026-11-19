@@ -163,16 +163,25 @@ public class WcwtUpgradesInventory extends ItemPatternRefillInventory {
      * otherwise a card alone would hand out a range the terminal has nothing to reach with.
      */
     public static boolean hasSingularity(final ItemStack terminal) {
-        if (terminal == null) {
+        if (terminal == null || !terminal.hasTagCompound()) {
             return false;
         }
-        final NBTTagCompound data = Platform.openNbtData(terminal);
-        if (!data.hasKey(Constants.UPGRADES)) {
+        final NBTTagCompound data = terminal.getTagCompound();
+        // "upgrades" is a name other mods use for their own data on their own items, sometimes as a byte,
+        // so the type is checked before the compound is read - this is reached from the wireless range
+        // check, which sees item stacks that are not ours at all.
+        final NBTTagCompound upgrades = data.getTag(Constants.UPGRADES) instanceof final NBTTagCompound tag ? tag
+            : null;
+        if (upgrades == null) {
             return false;
         }
-        final ItemStack is = Platform.loadItemStackFromNBT(
-            data.getCompoundTag(Constants.UPGRADES)
-                .getCompoundTag("#" + SINGULARITY_SLOT));
+        final NBTTagCompound slot = upgrades.getTag("#" + SINGULARITY_SLOT) instanceof final NBTTagCompound entry
+            ? entry
+            : null;
+        if (slot == null) {
+            return false;
+        }
+        final ItemStack is = Platform.loadItemStackFromNBT(slot);
         return is != null && AEApi.instance()
             .definitions()
             .materials()

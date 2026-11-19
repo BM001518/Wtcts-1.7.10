@@ -3,6 +3,8 @@ package com.asdflj.wtct.util;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.annotation.Nullable;
+
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTBase;
 import net.minecraft.nbt.NBTTagCompound;
@@ -186,6 +188,18 @@ public final class PatternScaling {
         if (!allReadable(inTag, inputs) || !allReadable(outTag, outputs)) {
             return null; // an entry we cannot decode - leave the pattern untouched
         }
+        if (carriesFluid(inputs) || carriesFluid(outputs) || carriesEssentia(inputs) || carriesEssentia(outputs)) {
+            // A fluid entry has to be written back in the exact shape the pattern's own reader expects: a real
+            // fluid entry for a fluid-aware pattern, an AE2FC drop, or this mod's packet. Reading normalises all
+            // three into a packet, so rewriting turned a water entry into a request for the "Fluid Packet" item -
+            // a pattern that can never be satisfied, and one the player cannot repair. Left alone instead.
+            //
+            // Essentia has the same problem for a different reason: the cell holds the aspect's display item while
+            // the pattern holds an essentia entry, so a rewrite would turn "16 of this aspect" into a request for
+            // the aspect item - again an item no machine makes. The rewriter only writes essentia entries for
+            // patterns it considers fluid-aware, so the only safe answer here is to leave the pattern untouched.
+            return null;
+        }
         if (!apply(inputs, outputs, operation, keepCircuitAtOne)) {
             return null;
         }
@@ -195,6 +209,26 @@ public final class PatternScaling {
         tag.setTag(IN_TAG, writeEntries(inputs, fluidAsStack));
         tag.setTag(OUT_TAG, writeEntries(outputs, fluidAsStack));
         return pattern;
+    }
+
+    /** True when any cell stands for a fluid rather than an item, whatever carrier it uses. */
+    private static boolean carriesFluid(final List<ItemStack> cells) {
+        for (final ItemStack stack : cells) {
+            if (stack != null && fluidCarriedBy(stack) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** True when any cell stands for essentia (the aspect display item a recipe hands out). */
+    private static boolean carriesEssentia(final List<ItemStack> cells) {
+        for (final ItemStack stack : cells) {
+            if (stack != null && essentiaCarriedBy(stack) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** True when every entry the list actually holds came back as a stack. */
@@ -430,19 +464,52 @@ public final class PatternScaling {
      * because only an Ultimate pattern is read by a reader that understands that shape. In a plain
      * encoded pattern such an entry has no item for AE2 to load and the pattern is marked invalid, so
      * the carrier item is written there instead.
+     *
+     * <p>
+     * Essentia works the same way: the cell holds the aspect item a recipe hands out, and writing that
+     * item into the pattern asks every machine for an item nobody can make. Converting it to the
+     * essentia stack type ({@code StackType:"essentia"}) is what makes the pattern mean "this much
+     * essentia" again. The conversion lives behind a guard because Thaumic Energistics and the aspect
+     * item provider are both optional at runtime.
      */
     public static NBTBase patternEntry(final ItemStack stack, final boolean fluidAsStack) {
         if (stack == null) {
             return new NBTTagCompound();
         }
-        final FluidStack fluid = fluidAsStack ? fluidCarriedBy(stack) : null;
-        final AEFluidStack entry = fluid == null ? null : AEFluidStack.create(fluid);
-        if (entry != null) {
-            entry.setStackSize(amountOf(stack));
-            return entry.toNBTGeneric();
+        if (fluidAsStack) {
+            final FluidStack fluid = fluidCarriedBy(stack);
+            final AEFluidStack entry = fluid == null ? null : AEFluidStack.create(fluid);
+            if (entry != null) {
+                entry.setStackSize(amountOf(stack));
+                return entry.toNBTGeneric();
+            }
+            final IAEStack<?> essentia = essentiaCarriedBy(stack);
+            if (essentia != null) {
+                return essentia.toNBTGeneric();
+            }
         }
         final AEItemStack item = AEItemStack.create(stack);
         return item == null ? new NBTTagCompound() : item.toNBTGeneric();
+    }
+
+    /**
+     * The essentia a cell stands for, already sized to the cell's amount; null for everything else.
+     *
+     * <p>
+     * Only the display item a recipe hands out converts here - a phial stays a phial, the same line the
+     * fluid side draws for buckets. Any failure is swallowed: without Thaumic Energistics the conversion
+     * cannot even load, and a pattern that keeps its display item is still no worse than before.
+     */
+    @Nullable
+    private static IAEStack<?> essentiaCarriedBy(final ItemStack stack) {
+        if (stack == null || stack.getItem() == null) {
+            return null;
+        }
+        try {
+            return AspectUtil.essentiaEntry(stack, amountOf(stack));
+        } catch (final Throwable ignored) {
+            return null;
+        }
     }
 
     /**

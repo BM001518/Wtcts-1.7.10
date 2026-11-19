@@ -21,6 +21,7 @@ wtct.magnet.off=Off
 wtct.magnet.inv=Pickup to inventory
 wtct.magnet.backpack=Pickup to backpack
 wtct.magnet.current_mode=Magnet mode:
+wtct.magnet.cycle.hint=Magnet card mode: %s
 
 wtct.gui.cell_link=Cell Link
 wtct.gui.pattern_rename=Custom Name
@@ -31,6 +32,7 @@ wtct.nei.find_cell_item.highlight=The storage block is now highlighted at %d,%d,
 wtct.nei.find_cell_item.in_other_dim=Storage block at dimension: %d and cant be highlighted
 wtct.key.open_terminal=Open Terminal Menu
 wtct.key.open_comprehensive_work_terminal=Open Comprehensive Work Terminal
+wtct.key.cycle_magnet_mode=Cycle Magnet Card Mode
 itemGroup.wtct=AE2 Thing
 
 
@@ -316,3 +318,10 @@ wtct.gui.network_hub.user.owner=Owner
 
 wtct.message.network_hub.no_permission=§cYou don't have permission.
 wtct.message.network_hub.head_protection=§cPlease delete the network first(or use a wrench to break the protection)
+
+wtct.gui.encode.undo.title=Take Last Upload Back
+wtct.gui.encode.undo.desc=Shift click: move the last uploaded pattern back into the edit slot, or into the pattern cache when the edit slot is occupied
+wtct.gui.management.undo.empty=Nothing to take back - this terminal has not uploaded a pattern yet
+wtct.gui.management.undo.gone=That interface can no longer be reached, so the upload was not taken back
+wtct.gui.management.undo.changed=That slot no longer holds the uploaded pattern, so nothing was taken back
+wtct.gui.management.undo.cache_full=The pattern cache is full - free a slot and try again

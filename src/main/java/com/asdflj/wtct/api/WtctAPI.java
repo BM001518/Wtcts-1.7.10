@@ -162,6 +162,10 @@ public final class WtctAPI implements IWtctAPI {
     @SideOnly(Side.CLIENT)
     @Override
     public void openComprehensiveWorkTerminal() {
+        com.asdflj.wtct.util.OpenTimer.request();
+        // Show the screen now and let the server's window packet rebind it; the measured open path
+        // spends most of its time waiting for that packet otherwise.
+        com.asdflj.wtct.client.gui.OptimisticTerminalOpen.tryOpen();
         Wtct.proxy.netHandler.sendToServer(new CPacketSwitchGuis(GuiType.COMPREHENSIVE_WORK_TERMINAL));
     }
 

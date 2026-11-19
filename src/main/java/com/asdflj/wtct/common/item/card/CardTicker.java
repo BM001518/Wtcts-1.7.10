@@ -440,7 +440,10 @@ public final class CardTicker {
             return false;
         }
         if (!fuzzyCard) {
-            return Platform.isSameItemPrecise(ghost, stack);
+            // Item and damage, never NBT - the guide's "ignore item NBT" and what the magnet filter does.
+            // Precise matching compared NBT too, so a ghost of a named or enchanted item never matched the
+            // plain copy that came out of a chest, which read as "the filter does nothing".
+            return Platform.isSameItem(ghost, stack);
         }
         if (fuzzyMode == FuzzyMode.IGNORE_ALL) {
             return true;
@@ -562,8 +565,16 @@ public final class CardTicker {
      * The block picker's server half, mirroring {@code BlockPickerHandler.handle}: only in survival,
      * only within reach, only when the player does not already carry the block, and only through a
      * terminal with the card that is actually linked to a reachable network.
+     *
+     * <p>
+     * The stack to fetch is resolved by the client and arrives as {@code picked}, because
+     * {@code Block#getPickBlock} is {@code @SideOnly(CLIENT)} in 1.7.10: it is not in the dedicated
+     * server jar at all, so the old call here threw {@code NoSuchMethodError} inside the packet
+     * handler, killed the channel and disconnected the player. The server only checks that the
+     * coordinates are reachable and that the answer is a sane, non-empty stack.
      */
-    public static void pickBlock(final EntityPlayer player, final int x, final int y, final int z) {
+    public static void pickBlock(final EntityPlayer player, final int x, final int y, final int z,
+        final ItemStack pickedIn) {
         if (player == null || player.worldObj == null || player.capabilities.isCreativeMode) {
             return;
         }
@@ -582,17 +593,11 @@ public final class CardTicker {
         if (block == null || block.isAir(world, x, y, z)) {
             return;
         }
-        final net.minecraft.util.MovingObjectPosition target = new net.minecraft.util.MovingObjectPosition(
-            x,
-            y,
-            z,
-            0,
-            net.minecraft.util.Vec3.createVectorHelper(x + 0.5D, y + 0.5D, z + 0.5D),
-            false);
-        final ItemStack picked = block.getPickBlock(target, world, x, y, z, player);
-        if (picked == null) {
+        if (pickedIn == null || pickedIn.getItem() == null || pickedIn.stackSize <= 0) {
             return;
         }
+        final ItemStack picked = pickedIn.copy();
+        picked.stackSize = Math.min(picked.stackSize, Math.max(1, picked.getMaxStackSize()));
         final IInventory inventory = player.inventory;
         if (containsStack(inventory, picked)) {
             return;
@@ -610,9 +615,15 @@ public final class CardTicker {
             if (!switchEnabled(terminal, "PickBlock")) {
                 continue;
             }
-            if (extractPick(player, terminal, picked, destination)) {
+            if (extractPick(player, terminal, picked, destination, slot)) {
                 player.inventory.currentItem = destination < 9 ? destination : player.inventory.currentItem;
                 player.inventoryContainer.detectAndSendChanges();
+                // currentItem only exists server-side; without telling the client, the hotbar highlight and the
+                // next left/right click disagree with the slot the server thinks is held.
+                if (destination < 9 && player instanceof net.minecraft.entity.player.EntityPlayerMP mp) {
+                    mp.playerNetServerHandler
+                        .sendPacket(new net.minecraft.network.play.server.S09PacketHeldItemChange(destination));
+                }
                 return;
             }
         }
@@ -640,8 +651,10 @@ public final class CardTicker {
 
     /** Pulls up to the configured amount out of the network and puts it in the player's inventory. */
     private static boolean extractPick(final EntityPlayer player, final ItemStack terminal, final ItemStack wanted,
-        final int destination) {
-        final WirelessObject network = openTerminal(terminal, player.worldObj, player, 0);
+        final int destination, final int terminalSlot) {
+        // The terminal's own slot, not 0: the wireless object writes the drained stack back into the slot it was
+        // given, and a hardcoded 0 overwrote whatever sat in hotbar slot 0 with a copy of the terminal.
+        final WirelessObject network = openTerminal(terminal, player.worldObj, player, terminalSlot);
         if (network == null) {
             return false;
         }

@@ -476,10 +476,9 @@ public class CellInventory implements ITCellInventory {
         if (itemLimit <= 1) {
             return itemLimit;
         }
-        int inventoryLimit = inv.getInventoryStackLimit();
-        if (inventoryLimit > itemLimit) {
-            return inventoryLimit;
-        }
-        return Math.min(itemLimit, inventoryLimit);
+        // The slot may never take more than the item's own maximum: a backpack inventory whose limit is 64
+        // (the default) used to hand back 64 for a 16-max item like an ender pearl or an egg, and the insert
+        // paths wrote that many into the slot.
+        return Math.min(itemLimit, inv.getInventoryStackLimit());
     }
 }

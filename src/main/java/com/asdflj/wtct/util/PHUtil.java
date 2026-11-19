@@ -13,19 +13,31 @@ import net.minecraft.item.ItemStack;
 import com.asdflj.wtct.integration.Mods;
 import com.asdflj.wtct.nei.object.OrderStack;
 
+import gregtech.common.items.ItemIntegratedCircuit;
 import reobf.proghatches.item.ItemProgrammingCircuit;
 import reobf.proghatches.item.ItemProgrammingToolkit;
 
 public class PHUtil {
 
     /**
-     * True for programmablehatches' programming circuit (编程器电路), the item a processing pattern
-     * carries to pick the machine's recipe. The mod is a soft dependency, so the class is only touched
-     * when it is actually loaded - the same guard the recipe transfer below is called under.
+     * True for the circuit a processing pattern carries to pick the machine's recipe (编程器电路).
+     *
+     * <p>
+     * Two items play that role and the "circuit always one" switch has to recognise both. When the
+     * player holds programmablehatches' programming toolkit, {@link #transfer(List)} rewrites the
+     * circuit slot into {@code ItemProgrammingCircuit}. A plain recipe pull writes GregTech's own
+     * programmed circuit instead ({@code ItemList.Circuit_Integrated}), which is what the NEI recipe
+     * hands over as a zero-sized, non-consumed input. Both are soft dependencies, so each class is only
+     * touched after its mod loaded check - otherwise a pack without that mod would fail to link here.
      */
     public static boolean isProgrammingCircuit(final ItemStack stack) {
-        return stack != null && Mods.PROGRAMMABLE_HATCHES.isModLoaded()
-            && stack.getItem() instanceof ItemProgrammingCircuit;
+        if (stack == null) {
+            return false;
+        }
+        if (Mods.PROGRAMMABLE_HATCHES.isModLoaded() && stack.getItem() instanceof ItemProgrammingCircuit) {
+            return true;
+        }
+        return Mods.GREGTECH.isModLoaded() && stack.getItem() instanceof ItemIntegratedCircuit;
     }
 
     public static List<OrderStack<?>> transfer(List<OrderStack<?>> inputs) {

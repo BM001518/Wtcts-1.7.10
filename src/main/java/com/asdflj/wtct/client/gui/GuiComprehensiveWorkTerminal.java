@@ -57,8 +57,10 @@ import com.asdflj.wtct.client.gui.widget.GuiWcwtTextField;
 import com.asdflj.wtct.client.gui.widget.GuiWcwtToolbarButton;
 import com.asdflj.wtct.client.gui.widget.GuiWcwtUpgradePanel;
 import com.asdflj.wtct.client.me.AdvItemRepo;
+import com.asdflj.wtct.common.Config;
 import com.asdflj.wtct.common.item.card.CardTicker;
 import com.asdflj.wtct.common.item.card.ItemWcwtUpgradeCard;
+import com.asdflj.wtct.coremod.HandOver;
 import com.asdflj.wtct.inventory.InventoryHandler;
 import com.asdflj.wtct.inventory.gui.GuiType;
 import com.asdflj.wtct.network.CPacketFillCraftingSlot;
@@ -69,6 +71,7 @@ import com.asdflj.wtct.network.CPacketTerminalBtns;
 import com.asdflj.wtct.util.Ae2ReflectClient;
 import com.asdflj.wtct.util.ModAndClassUtil;
 import com.asdflj.wtct.util.NeCharUtil;
+import com.asdflj.wtct.util.OpenTimer;
 import com.asdflj.wtct.util.PatternMappingStore;
 import com.asdflj.wtct.util.PatternScaling;
 import com.glodblock.github.common.item.ItemFluidDrop;
@@ -577,12 +580,14 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
 
     public GuiComprehensiveWorkTerminal(InventoryPlayer inventory, ITerminalHost inv) {
         this(new ContainerComprehensiveWorkTerminal(inventory, inv));
+        final long perfCtor = OpenTimer.begin("client.guiCtor");
         this.xSize = GUI_WIDTH;
         this.standardSize = GUI_WIDTH;
         (this.monitorableContainer = (ContainerComprehensiveWorkTerminal) this.inventorySlots).setGui(this);
         // GuiMonitor's ySize formula is 115 + rows*18 + reservedSpace; 137 makes it match the WCWT
         // geometry (17 + rows*18 + 235) in case anything reads ySize before initGui runs.
         this.reservedSpace = HEADER_H + BOTTOM_H - 115; // 137
+        OpenTimer.end("client.guiCtor", perfCtor);
     }
 
     @Override
@@ -630,7 +635,10 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
 
     @Override
     public void initGui() {
+        final long perfInit = OpenTimer.begin("client.initGui");
+        final long perfBase = OpenTimer.begin("client.base");
         super.initGui();
+        OpenTimer.end("client.base", perfBase);
 
         // AE2 1.21: rows = min(terminalStyle rows, getPossibleRows(height - 2*margin)).
         final int possible = (this.height - 2 * TERMINAL_MARGIN - HEADER_H - BOTTOM_H) / ROW_H;
@@ -683,6 +691,7 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
 
         // The sidebar stands outside the panel, so the item list has the whole width: 18 columns from the
         // first cell (x = 8) up to the scrollbar at 336 - exactly what the screen JSON lays out.
+        final long perfSlots = OpenTimer.begin("client.slots");
         this.perRow = 18;
         this.repo.setRowSize(this.perRow);
         this.getMeSlots()
@@ -703,6 +712,8 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
         }
         this.setScrollBar();
         this.repo.updateView();
+        OpenTimer.end("client.slots", perfSlots);
+        final long perfWidgets = OpenTimer.begin("client.widgets");
 
         // Search box: WCWT widget rect (left 241, top 4, 90x12).
         if (this.searchField != null) {
@@ -900,6 +911,7 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
                 "wtct.gui.pattern.cycle.title",
                 "wtct.gui.pattern.cycle.desc"));
         updateEncodingOptionButtons();
+        OpenTimer.end("client.widgets", perfWidgets);
 
         repositionFixedSlots();
         repositionPlayerSlots();
@@ -916,9 +928,26 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
         if (this.mgmtMappingField != null) {
             this.mgmtMappingField.updateCursorCounter();
         }
+        final long perfLayout = OpenTimer.begin("client.layout");
         layoutPatternCache();
         setupUpgradePanel();
         setupCardButtons();
+        OpenTimer.end("client.layout", perfLayout);
+        OpenTimer.end("client.initGui", perfInit);
+        OpenTimer.log(
+            "client.initGui",
+            "client.guiCtor",
+            "client.apply",
+            "client.base",
+            "client.slots",
+            "client.widgets",
+            "client.layout",
+            "client.initGui");
+        // From here until the first frame the client only ticks; measure that separately so a slow
+        // first frame is not mistaken for slow widget construction.
+        this.initGuiEndNanos = Config.perfTiming ? System.nanoTime() : 0L;
+        this.gapTicks = 0;
+        this.gapMaxTickMs = 0.0D;
     }
 
     /**
@@ -1344,6 +1373,12 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
      */
     @Override
     public void drawScreen(final int mouseX, final int mouseY, final float partialTicks) {
+        final long perfFrame = this.perfFramed ? 0L : OpenTimer.begin("client.firstFrame");
+        if (this.encodeBtn != null) {
+            // Shift turns the encode key into "take the last upload back": the arrow points up for as
+            // long as the modifier is held, so the gesture is visible before it is used.
+            this.encodeBtn.setUpward(isShiftKeyDown());
+        }
         final TerminalFontSize configured = AEConfig.instance.getTerminalFontSize();
         final boolean lend = this.bigCounts() && configured != TerminalFontSize.LARGE;
         if (lend) {
@@ -1355,6 +1390,20 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
             if (lend) {
                 AEConfig.instance.settings.putSetting(Settings.TERMINAL_FONT_SIZE, configured);
             }
+        }
+        if (perfFrame != 0L) {
+            OpenTimer.end("client.firstFrame", perfFrame);
+            if (this.initGuiEndNanos != 0L) {
+                // The wait between the end of initGui and the first frame is not drawing time: it is
+                // the client's own tick loop and whatever else this tick still had to do. Logged apart
+                // from the frame so the two costs cannot be confused.
+                OpenTimer.add("client.gap", (System.nanoTime() - this.initGuiEndNanos) / 1_000_000.0D);
+                OpenTimer.add("client.gapTicks", this.gapTicks);
+                OpenTimer.add("client.gapTick", this.gapMaxTickMs);
+                this.initGuiEndNanos = 0L;
+            }
+            OpenTimer.log("client.firstFrame", "client.firstFrame", "client.gap", "client.gapTicks", "client.gapTick");
+            this.perfFramed = true;
         }
     }
 
@@ -1370,6 +1419,9 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
      */
     @Override
     protected void mouseClicked(final int mouseX, final int mouseY, final int mouseButton) {
+        if (this.awaitingContainer) {
+            return;
+        }
         final int xSize = this.xSize;
         final int ySize = this.ySize;
         if (this.upgradePanel != null) {
@@ -1426,8 +1478,7 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
         // action, and the click stops there rather than reaching the container underneath.
         if (mouseButton == 1) {
             if (this.mgmtSearch != null && this.isOnMgmtSearch(mouseX, mouseY)) {
-                this.mgmtSearch.setText("");
-                this.mgmtRowsDirty = true;
+                this.clearMgmtSearchByPlayer();
                 return;
             }
             if (this.mgmtMappingField != null && this.isOnMgmtMapping(mouseX, mouseY)) {
@@ -1486,6 +1537,12 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
 
     @Override
     protected void keyTyped(final char character, final int key) {
+        // Until the server's window arrives this screen has no slot mapping of its own; keys and clicks
+        // would be sent against whatever container is open underneath (the player inventory), so they
+        // are swallowed. Escape still works so the player is never trapped.
+        if (this.awaitingContainer && key != org.lwjgl.input.Keyboard.KEY_ESCAPE) {
+            return;
+        }
         // Escape / Enter leave the fields, the way vanilla's EditBox does.
         if (key == org.lwjgl.input.Keyboard.KEY_ESCAPE || key == org.lwjgl.input.Keyboard.KEY_RETURN) {
             if (this.mgmtSearch != null && this.mgmtSearch.isFocused()) {
@@ -1512,6 +1569,10 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
             return;
         }
         if (this.mgmtSearch != null && this.mgmtSearch.isFocused() && this.mgmtSearch.textboxKeyTyped(character, key)) {
+            // The player is driving the box now: from here on it is their term, not the terminal's fill,
+            // and an emptied box must not be refilled from the remembered upload key on the next encode.
+            this.mgmtSearchSeen = this.mgmtSearch.getText();
+            this.mgmtSearchUserEdited = true;
             this.mgmtRowsDirty = true;
             return;
         }
@@ -1615,6 +1676,9 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
 
     @Override
     protected void mouseMovedOrUp(final int mouseX, final int mouseY, final int which) {
+        if (this.awaitingContainer) {
+            return;
+        }
         if (this.draggingMgmtKnob) {
             if (which < 0) {
                 this.dragMgmtScrollTo(mouseY);
@@ -2931,19 +2995,150 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
             this.clearGridAsked = false;
             return;
         }
+        // Stamp the search text here rather than relying on updateScreen's tick: the amount dialog can
+        // stay open for minutes, and the copy that replaces this screen has to be recognised as a
+        // replacement no matter how long the player took to confirm.
+        this.rememberMgmtSearch();
+        // Keep what this terminal showed last: the optimistic screen paints it while the server's
+        // answer is still travelling, instead of flashing an empty grid (EarlyTerminalLists.applyTo).
+        // The view order comes along, because rebuilding it costs a full sort and the stand-in screen
+        // must not pay that before its first frame.
+        final AdvItemRepo lastRepo = this.getRepo();
+        if (lastRepo != null) {
+            EarlyTerminalLists.remember(lastRepo.getAllStacks(), lastRepo.snapshotView());
+        }
         this.clearGridOnClose();
         this.clearGridAsked = false;
+        // A screen closed before its container arrived never gets the hand-over, so the armed slot must
+        // not stay behind and swallow some later displayGuiScreen call for this very object.
+        HandOver.disarm(this);
         super.onGuiClosed();
     }
 
     /** Every client tick - the watcher's whole loop lives here, as ae2helpers ticks it per screen tick. */
     @Override
     public void updateScreen() {
+        final long perfTick = this.initGuiEndNanos != 0L && Config.perfTiming ? System.nanoTime() : 0L;
         super.updateScreen();
+        this.tickAwaitingContainer();
+        this.trackMgmtSearchEditing();
+        this.rememberMgmtSearch();
         if (this.dragSuppressTicks > 0) {
             this.dragSuppressTicks--;
         }
         this.tickAutoFillWatch();
+        if (perfTick != 0L) {
+            this.gapTicks++;
+            this.gapMaxTickMs = Math.max(this.gapMaxTickMs, (System.nanoTime() - perfTick) / 1_000_000.0D);
+        }
+    }
+
+    /**
+     * Marks this screen as shown ahead of the server (optimistic open): input is ignored until the real
+     * container arrives, because clicking with the temporary container's window id would hit the player
+     * inventory instead of the terminal.
+     */
+    public void setAwaitingContainer() {
+        this.awaitingContainer = true;
+        this.awaitingSince = System.currentTimeMillis();
+        this.bindStartNanos = System.nanoTime();
+        this.awaitingTicks = 0;
+        this.rebindPending = false;
+        this.rebindWaitTicks = 0;
+        this.handOverDone = false;
+    }
+
+    /** True while this is the stand-in screen that is waiting for the server's window. */
+    public boolean isAwaitingContainer() {
+        return this.awaitingContainer;
+    }
+
+    /**
+     * Closes the optimistic screen once the server's window has replaced the temporary container, or
+     * when it never arrives (no power, no link, refused by the server) - the player must not be left on
+     * a screen that eats their clicks.
+     */
+    private void tickAwaitingContainer() {
+        if (!this.awaitingContainer) {
+            return;
+        }
+        this.awaitingTicks++;
+        if (this.inventorySlots instanceof ContainerComprehensiveWorkTerminal) {
+            // Freshly rebound (OptimisticTerminalOpen.handOver): FML is about to call displayGuiScreen
+            // with this very screen, and the mixin there cancels that call and comes back to
+            // finishHandOver(). Give it a couple of ticks before doing it here, so the cancel can win.
+            if (this.rebindPending && ++this.rebindWaitTicks < 3) {
+                return;
+            }
+            this.finishHandOver();
+            return;
+        }
+        if (System.currentTimeMillis() - this.awaitingSince > 4000L) {
+            this.awaitingContainer = false;
+            this.mc.displayGuiScreen(null);
+        }
+    }
+
+    /**
+     * True while the server's container has been moved into this screen but vanilla has not yet been
+     * told to show it again (the {@code displayGuiScreen} mixin consumes this).
+     */
+    public boolean isRebindPending() {
+        return this.rebindPending;
+    }
+
+    /**
+     * Moves the server's window into the screen that is already on display, instead of letting FML
+     * build a second screen and pay {@code initGui()} again: measured 39–57 ms of widget construction
+     * plus a full re-sort of the item list, for a screen that is already drawn, sized and laid out.
+     *
+     * <p>
+     * Both containers come from the same class and the same arguments, so slot positions, the terminal
+     * stack and the settings all match; only the object (and its window id) changes. The screen keeps
+     * its widgets, its scroll position and its repository.
+     *
+     * @param real the container that came with the server's window packet
+     */
+    public void rebindContainer(final Container real) {
+        if (!(real instanceof ContainerComprehensiveWorkTerminal monitor)) {
+            return;
+        }
+        final long perfRebind = OpenTimer.begin("client.rebind");
+        this.inventorySlots = real;
+        this.monitorableContainer = monitor;
+        monitor.setGui(this);
+        this.rebindPending = true;
+        this.rebindWaitTicks = 0;
+        OpenTimer.end("client.rebind", perfRebind);
+    }
+
+    /**
+     * Completes the hand-over: the parked lists are painted (one batched sort, not one per list) and
+     * the screen becomes interactive. Idempotent, because either the {@code displayGuiScreen} mixin or
+     * {@link #tickAwaitingContainer()} may get here first.
+     */
+    public void finishHandOver() {
+        if (this.handOverDone || !(this.inventorySlots instanceof ContainerComprehensiveWorkTerminal)) {
+            return;
+        }
+        this.handOverDone = true;
+        final long perfHandOver = OpenTimer.begin("client.handOver");
+        this.rebindPending = false;
+        this.awaitingContainer = false;
+        // The container was already sent its item, fluid and essentia lists before the window packet
+        // (InventoryHandler.getServerGuiElement pushes them first), and SPacketME*InvUpdate parked them
+        // while the stand-in screen was up. They are the real data now, so they replace the cached
+        // snapshot in one go.
+        EarlyTerminalLists.applyTo(this);
+        this.setScrollBar();
+        this.craftableMarks.clear();
+        OpenTimer.end("client.handOver", perfHandOver);
+        if (this.bindStartNanos != 0L) {
+            OpenTimer.add("client.bind", (System.nanoTime() - this.bindStartNanos) / 1_000_000.0D);
+            this.bindStartNanos = 0L;
+        }
+        OpenTimer.add("client.awaitTicks", this.awaitingTicks);
+        OpenTimer.log("client.bind", "client.bind", "client.handOver", "client.rebind", "client.awaitTicks");
     }
 
     /**
@@ -3571,12 +3766,46 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
 
     @Override
     public void postStackUpdate(List<? extends IAEStack<?>> list) {
+        this.postStackUpdateBatched(list);
+    }
+
+    /**
+     * Merges every stack that came with the window, then rebuilds the view once.
+     *
+     * <p>
+     * The item, fluid and essentia lists each arrive in their own packet, and each used to end in its
+     * own {@code repo.updateView()} - three sorts of the whole network before the first frame could be
+     * drawn. They all land in the same repo, so one rebuild after the last merge produces exactly the
+     * same result for a third of the cost.
+     */
+    @Override
+    public void postStackUpdateBatched(List<? extends IAEStack<?>> list) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
         for (IAEStack<?> stack : list) {
             this.repo.postUpdate(stack);
         }
         this.repo.updateView();
         this.setScrollBar();
         // The list just moved under the badges: every remembered answer may be stale now.
+        this.craftableMarks.clear();
+    }
+
+    /**
+     * Paints the previous session's contents without sorting them.
+     *
+     * <p>
+     * Only the optimistic screen takes this path: it lives for the ~150 ms the server needs to build
+     * the real window, so the grid has to show something immediately and the order it shows is the one
+     * the last terminal already had. The real lists replace it on the first frame after the window
+     * arrives, which is also when the sort cost is paid - once, not once per list.
+     */
+    @Override
+    public void restoreCachedSnapshot(final List<? extends IAEStack<?>> stacks,
+        final List<? extends IAEStack<?>> sortedView) {
+        this.repo.adoptSnapshot(stacks, sortedView);
+        this.setScrollBar();
         this.craftableMarks.clear();
     }
 
@@ -3763,6 +3992,38 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
     private final List<MgmtRow> mgmtRows = new ArrayList<>();
     private int mgmtScroll;
     private boolean mgmtRowsDirty = true;
+    /** Set once the first frame has been timed, so only the opening cost is logged. */
+    private boolean perfFramed;
+    /** Text the box held when it was last observed, to tell the player's typing from the terminal's fill. */
+    private String mgmtSearchSeen;
+    /** True once the text in the box differs from what the terminal wrote, i.e. the player typed it. */
+    private boolean mgmtSearchUserEdited;
+    /**
+     * Set while the screen is on show but its container has not been bound yet (optimistic open). The
+     * window id of the temporary container is wrong, so every click and key would be sent against the
+     * player inventory: input is dropped until {@link #updateScreen()} sees the real container.
+     */
+    private boolean awaitingContainer;
+    private long awaitingSince;
+    /**
+     * Set when the server's container has already been moved into this screen (see
+     * {@link #rebindContainer(Container)}) while FML is still going to call
+     * {@code Minecraft.displayGuiScreen} with this very screen. The mixin on that method cancels the
+     * call for exactly this screen and finishes the hand-over instead of letting vanilla tear the
+     * widgets down and run {@code initGui()} again.
+     */
+    private boolean rebindPending;
+    /** How many ticks the rebind flag has been waiting for that call, so a missed call cannot wedge the screen. */
+    private int rebindWaitTicks;
+    /** Set once the hand-over from the stand-in container has run, so the parked lists are applied once. */
+    private boolean handOverDone;
+    /** Wall-clock of {@link #setAwaitingContainer()}, for the "when was the container actually usable" timing. */
+    private long bindStartNanos;
+    /** Ticks spent waiting for the container, and the wall-clock end of the last {@code initGui}. */
+    private int awaitingTicks;
+    private long initGuiEndNanos;
+    private int gapTicks;
+    private double gapMaxTickMs;
     private boolean draggingMgmtKnob;
     /** The provider the encode key uploads to first; also the highlighted row. */
     private long selectedProviderId = -1;
@@ -3777,6 +4038,21 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
     private boolean lastSearchWasDefault;
     /** WCWT's provider search box: filters the list, and is the match word the upload uses. */
     private GuiWcwtTextField mgmtSearch;
+    /**
+     * The provider search the player last typed, plus when it was typed. Editing an encoded pattern's
+     * amount closes this screen and the server opens a new one, so the box would otherwise come back
+     * empty; the text is carried over instead. It is deliberately not keyed on the terminal stack: the
+     * item's NBT (the pattern cache lives there) is rewritten in the same round trip, which is exactly
+     * why comparing stacks here never matched and the search kept coming back blank.
+     */
+    private static String mgmtSearchText = "";
+    /** When {@link #mgmtSearchText} was captured; the memory is only good for a screen swap. */
+    private static long mgmtSearchAt;
+    /**
+     * How long a remembered search may be handed to a new screen. A server-driven reopen happens within a
+     * few ticks; anything older is a terminal the player genuinely closed and later re-opened.
+     */
+    private static final long MGMT_SEARCH_CARRY_MS = 5000L;
     /** WCWT's mapping key field (样板映射输入框). */
     private GuiWcwtTextField mgmtMappingField;
     /**
@@ -4562,7 +4838,7 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
 
     /** Recreates the provider-search and mapping fields at the current chrome position. */
     private void rebuildMgmtFields() {
-        final String searchValue = this.mgmtSearch == null ? "" : this.mgmtSearch.getText();
+        final String searchValue = this.mgmtSearch == null ? this.rememberedMgmtSearch() : this.mgmtSearch.getText();
         final boolean searchFocused = this.mgmtSearch != null && this.mgmtSearch.isFocused();
         this.mgmtSearch = new GuiWcwtTextField(
             this.fontRendererObj,
@@ -4573,6 +4849,9 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
         this.mgmtSearch.setPlaceholder(StatCollector.translateToLocal("wtct.gui.management.search"));
         this.mgmtSearch.setText(searchValue);
         this.mgmtSearch.setFocused(searchFocused);
+        // The widget is new: let the next tick adopt whatever it holds as inherited text, so the screen
+        // does not mistake the carried-over term for something the player typed.
+        this.mgmtSearchSeen = null;
 
         final String mappingValue = this.mgmtMappingField == null ? "" : this.mgmtMappingField.getText();
         final boolean mappingFocused = this.mgmtMappingField != null && this.mgmtMappingField.isFocused();
@@ -4585,6 +4864,112 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
         this.mgmtMappingField.setPlaceholder(StatCollector.translateToLocal("wtct.gui.management.mapping"));
         this.mgmtMappingField.setText(mappingValue);
         this.mgmtMappingField.setFocused(mappingFocused);
+    }
+
+    /**
+     * The provider search to show in a freshly built screen. Editing an encoded pattern's amount closes
+     * this screen and has the server open a new one, so the box - which lives and dies with the GUI -
+     * lost whatever the player had typed. The text is handed over exactly once, and only to a screen
+     * that arrives right after the old one closed, so a terminal opened much later still starts blank.
+     */
+    private String rememberedMgmtSearch() {
+        if (mgmtSearchText.isEmpty() || mgmtSearchAt == 0L) {
+            return "";
+        }
+        final long age = System.currentTimeMillis() - mgmtSearchAt;
+        if (age < 0L || age > MGMT_SEARCH_CARRY_MS) {
+            mgmtSearchText = "";
+            mgmtSearchAt = 0L;
+            return "";
+        }
+        final String text = mgmtSearchText;
+        mgmtSearchText = "";
+        mgmtSearchAt = 0L;
+        return text;
+    }
+
+    /** Keeps the current search box content for the screen that may replace this one. */
+    /**
+     * Writes the provider search box from the terminal. The written text is remembered so a later
+     * keystroke can be told apart from the terminal's own fill: only text the player typed counts as a
+     * deliberate choice of provider when a pattern is uploaded.
+     */
+    private void applyMgmtSearchText(final String value) {
+        if (this.mgmtSearch != null && !value.equals(this.mgmtSearch.getText())) {
+            this.mgmtSearch.setText(value);
+            this.mgmtRowsDirty = true;
+        }
+        this.mgmtSearchSeen = value;
+        this.mgmtSearchUserEdited = false;
+    }
+
+    /** Notes whether the search box now holds text the player typed instead of the terminal's fill. */
+    private void trackMgmtSearchEditing() {
+        if (this.mgmtSearch == null) {
+            return;
+        }
+        final String now = this.mgmtSearch.getText();
+        if (this.mgmtSearchSeen == null) {
+            // First look after the widget was (re)built: whatever it holds was carried over from the last
+            // open, not typed now.
+            this.mgmtSearchSeen = now;
+            return;
+        }
+        if (!now.equals(this.mgmtSearchSeen)) {
+            // The text changed without this screen writing it, so the player typed it.
+            this.mgmtSearchSeen = now;
+            this.mgmtSearchUserEdited = true;
+        }
+    }
+
+    /**
+     * True when the provider search box holds a term left over from an earlier encode or recipe transfer
+     * rather than something the player typed. A term like that must not decide where a new pattern goes:
+     * pulling the materials of a multiblock recipe does not name a recipe type, so the box would still
+     * show the previous one and the upload would file the pattern into whatever interface answered to it.
+     */
+    private boolean mgmtSearchIsStale() {
+        return !this.mgmtSearchUserEdited;
+    }
+
+    /**
+     * Clears a provider search term that was never the player's own, and forgets the terms the upload
+     * would otherwise fall back to. Called when a recipe transfer cannot name its recipe type: from that
+     * point on nothing in the terminal knows where the pattern belongs, so the upload must stop guessing.
+     */
+    private void clearInheritedUploadSearch() {
+        if (!this.mgmtSearchIsStale()) {
+            return;
+        }
+        this.applyMgmtSearchText("");
+        this.lastProviderSearchKey = "";
+        this.lastUploadSearchKey = "";
+        this.lastSearchWasDefault = false;
+    }
+
+    /**
+     * Empties the provider search box because the player asked for it (right click). Clearing the
+     * widget alone was not enough: the terminal's own "last transfer" key lived on in
+     * {@code lastProviderSearchKey} / {@code lastUploadSearchKey}, so the next encode resolved straight
+     * back to the previous recipe type and wrote it into the box again - the box looked impossible to
+     * clear, and the upload still went to the provider of the previous transfer. A box the player
+     * emptied must stay empty, so the remembered keys go with it and the edit counts as the player's.
+     */
+    private void clearMgmtSearchByPlayer() {
+        this.applyMgmtSearchText("");
+        this.mgmtSearchUserEdited = true;
+        this.mgmtRowsDirty = true;
+        this.lastProviderSearchKey = "";
+        this.lastUploadSearchKey = "";
+        this.lastSearchWasDefault = false;
+    }
+
+    private void rememberMgmtSearch() {
+        if (this.mgmtSearch == null) {
+            return;
+        }
+        mgmtSearchText = this.mgmtSearch.getText();
+        mgmtSearchAt = System.currentTimeMillis();
     }
 
     /** The four mapping plates, drawn like the row buttons but with their label centred. */
@@ -5611,6 +5996,13 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
      * provider the term matches takes the pattern - the emptiest of them.
      */
     private void sendEncode() {
+        if (isShiftKeyDown()) {
+            // Shift turns the key into "take the last upload back", whatever the automatic upload
+            // switch says: nothing is encoded and nothing is resolved, so a take-back can never leave a
+            // fresh pattern behind in the edit slot.
+            Wtct.proxy.netHandler.sendToServer(new CPacketTerminalBtns("PatternManagement.UndoUpload", 0));
+            return;
+        }
         // Resolve first, unconditionally: WCWT resolves and fills the provider search box on every
         // encode even when the automatic upload is switched off - the box never silently disagrees
         // with what the terminal is about to do. resolveUploadSearch() also writes the term into the
@@ -5630,6 +6022,14 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
         final long target = this.resolveUploadProvider(search);
         if (target >= 0) {
             this.sendEncodePacket(true, target, search);
+            return;
+        }
+        if (search.isEmpty()) {
+            // No term, so nothing names a provider: hand the pattern to the cache on the server (the
+            // container stashes it there when the search is empty) instead of leaving it in the edit slot
+            // or guessing an interface. That is where multiblock material pulls have to land, since they
+            // never fill the search box.
+            this.sendEncodePacket(true, -1, "");
             return;
         }
         this.sendEncodePacket(false, -1, "");
@@ -5676,10 +6076,7 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
         if (term.isEmpty() || term.equals(typed)) {
             return false;
         }
-        if (!term.equals(this.mgmtSearch.getText())) {
-            this.mgmtSearch.setText(term);
-            this.mgmtRowsDirty = true;
-        }
+        this.applyMgmtSearchText(term);
         return true;
     }
 
@@ -5716,8 +6113,10 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
             term = this.resolveKey(typed);
             key = term.isEmpty() ? "" : typed;
         }
-        // 3) the term the last upload used - Plus' lastProviderSearchKey cache.
-        if (term.isEmpty() && !this.lastProviderSearchKey.isEmpty()) {
+        // 3) the term the last upload used - Plus' lastProviderSearchKey cache. Not when the player
+        // emptied the box themselves: an empty box that the player cleared means "no term", and
+        // falling back here is what made the cleared box refill itself on the next encode.
+        if (term.isEmpty() && !this.mgmtSearchUserEdited && !this.lastProviderSearchKey.isEmpty()) {
             term = this.resolveKey(this.lastProviderSearchKey);
             key = this.lastProviderSearchKey;
             this.lastSearchWasDefault = true;
@@ -5736,10 +6135,7 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
         // the term can never drift apart.
         if (!term.isEmpty()) {
             this.lastProviderSearchKey = term;
-            if (this.mgmtSearch != null && !key.equals(this.mgmtSearch.getText())) {
-                this.mgmtSearch.setText(key);
-                this.mgmtRowsDirty = true;
-            }
+            this.applyMgmtSearchText(key);
         }
         return term;
     }
@@ -5761,6 +6157,12 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
     public void noteTransferredRecipe(final boolean crafting, final String recipeId, final String localizedName) {
         final String key = crafting ? DEFAULT_CRAFTING_SEARCH_KEY : recipeId == null ? "" : recipeId.trim();
         if (key.isEmpty()) {
+            // Nothing names this transfer - a multiblock preview hands NEI no overlay identifier, so there
+            // is no recipe type to map to a provider. The box still holds the term of the previous encode;
+            // keeping it would make the upload file the new pattern into that provider, which is how
+            // multiblock material pulls used to end up in the first interface. Drop it unless the player
+            // typed it, and let the upload fall back to the pattern cache.
+            this.clearInheritedUploadSearch();
             return;
         }
         String term = this.resolveKey(key);
@@ -5792,8 +6194,7 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
         // keeps showing what this key is bound to. Every reader resolves the box again
         // ({@code resolvedMgmtSearch}), so the provider matching is unaffected.
         if (this.mgmtSearch != null && !key.equals(this.mgmtSearch.getText())) {
-            this.mgmtSearch.setText(key);
-            this.mgmtRowsDirty = true;
+            this.applyMgmtSearchText(key);
         }
     }
 
@@ -5842,6 +6243,11 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
             // A nameless provider (the interface-terminal list can hold one) has no name to search
             // for and no name to be grouped under, exactly as the chooser's own grouping drops them.
             if (provider.name == null || provider.name.isEmpty() || emptySlotCount(provider) <= 0) {
+                continue;
+            }
+            // Hidden from AE2's interface terminal means hidden from here as well, uploads included:
+            // the pattern must never land in a provider the management list does not show.
+            if (!provider.terminalVisible) {
                 continue;
             }
             if (!providerNameMatches(provider, needle)
@@ -6009,7 +6415,7 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
 
     private long firstProviderWithRoomClient() {
         for (final PatternProvider provider : this.patternProviders) {
-            if (emptySlotCount(provider) > 0) {
+            if (provider.terminalVisible && emptySlotCount(provider) > 0) {
                 return provider.id;
             }
         }
@@ -6019,7 +6425,7 @@ public class GuiComprehensiveWorkTerminal extends GuiMonitor implements IInterfa
     private boolean providerHasRoomClient(final long id) {
         for (final PatternProvider provider : this.patternProviders) {
             if (provider.id == id) {
-                return emptySlotCount(provider) > 0;
+                return provider.terminalVisible && emptySlotCount(provider) > 0;
             }
         }
         return false;

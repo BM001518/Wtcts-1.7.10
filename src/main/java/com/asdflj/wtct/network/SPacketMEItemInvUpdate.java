@@ -61,6 +61,10 @@ public class SPacketMEItemInvUpdate extends SPacketMEBaseInvUpdate implements IM
             if (message.ref == Constants.MessageType.UPDATE_ITEMS.type) {
                 if (gs instanceof IGuiMonitorTerminal gmt) {
                     gmt.postStackUpdate(message.list);
+                    // Park a copy as well: opening the terminal optimistically puts one screen up and
+                    // replaces it with the real one a moment later, and that replacement would start
+                    // from an empty repo. See EarlyTerminalLists.
+                    EarlyTerminalLists.stashStacks(message.list);
                 } else {
                     // The screen swap runs on the client thread while this packet is applied on the
                     // network thread, so a full list that loses the race used to be dropped and the

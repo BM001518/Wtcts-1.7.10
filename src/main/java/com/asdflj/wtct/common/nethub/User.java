@@ -1,6 +1,5 @@
 package com.asdflj.wtct.common.nethub;
 
-import java.util.Objects;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
@@ -129,12 +128,16 @@ public class User implements IListObject {
 
     @Override
     public boolean equals(Object o) {
+        if (this == o) return true;
         if (!(o instanceof User user)) return false;
-        return Objects.equals(this.uuid, user.uuid) && Objects.equals(this.name, user.name);
+        // Identity is the uuid alone. Matching the stored name too locked a renamed owner out of their own group
+        // (getUser returned null, isOwner was false) and made the next login mint a duplicate group for them.
+        // A user without a uuid is a sentinel and only equals itself, which the identity check above handles.
+        return this.uuid != null && this.uuid.equals(user.uuid);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(uuid, name);
+        return this.uuid == null ? 0 : this.uuid.hashCode();
     }
 }

@@ -52,6 +52,12 @@ public class CommonProxy {
 
     public WtctNetworkWrapper netHandler = new WtctNetworkWrapper(Wtct.MODID);
 
+    /**
+     * Client-only hook used when the player right-clicks the comprehensive terminal: the screen can be
+     * built locally and shown before the server's window packet arrives. Nothing happens on a server.
+     */
+    public void tryOptimisticTerminalOpen(final EntityPlayer player, final ItemStack stack) {}
+
     public void preInit(FMLPreInitializationEvent event) {
         MinecraftForge.EVENT_BUS.register(this);
         MinecraftForge.EVENT_BUS.register(new NetworkHubHeadProtection());

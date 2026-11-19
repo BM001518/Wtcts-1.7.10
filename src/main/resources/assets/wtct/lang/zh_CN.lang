@@ -21,6 +21,7 @@ wtct.magnet.off=关闭
 wtct.magnet.inv=拾取到物品栏
 wtct.magnet.backpack=拾取到背包
 wtct.magnet.current_mode=磁铁模式:
+wtct.magnet.cycle.hint=磁铁卡吸引方式：%s
 
 wtct.gui.cell_link=元件链接
 wtct.gui.pattern_rename=自定义名称
@@ -31,6 +32,7 @@ wtct.nei.find_cell_item.highlight=存储方块已高亮，坐标：%d, %d, %d
 wtct.nei.find_cell_item.in_other_dim=存储方块位于 %d 世界，无法高亮显示
 wtct.key.open_terminal=打开选择终端菜单
 wtct.key.open_comprehensive_work_terminal=打开综合工作终端
+wtct.key.cycle_magnet_mode=切换磁铁卡吸引方式
 
 itemGroup.wtct=AE2 Thing
 
@@ -733,3 +735,10 @@ wtct.gui.network_hub.user.owner=创建者
 
 wtct.message.network_hub.no_permission=§c你没有权限
 wtct.message.network_hub.head_protection=§c请先删除网络(或使用扳手破坏绕过保护)
+
+wtct.gui.encode.undo.title=取回上一次上传
+wtct.gui.encode.undo.desc=按住 Shift 点击：把上一次上传的样板放回编码位置，编码位置被占用时放回样板缓存区
+wtct.gui.management.undo.empty=没有可取回的样板，这个终端还没有上传过样板
+wtct.gui.management.undo.gone=该接口已经无法访问，样板没有被取回
+wtct.gui.management.undo.changed=该槽位已不再是上传的样板，没有取回任何东西
+wtct.gui.management.undo.cache_full=样板缓存区已满，腾出一个位置后再试

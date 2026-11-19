@@ -1,0 +1,46 @@
+WTCT — AE2实用
+==============
+
+This repository is a fork of Wtcts-1.7.10 by 233exp:
+
+    https://github.com/233max258/Wtcts-1.7.10
+    fork point: commit 6a9b13d ("1.0.63-rc1")
+
+Original work
+-------------
+
+    Copyright (C) 233exp
+    Licensed under the GNU General Public License v3.0.
+
+Modifications in this fork
+--------------------------
+
+    Copyright (C) BM001518 <https://github.com/BM001518>
+    Licensed under the GNU General Public License v3.0.
+
+The complete list of changes is in CHANGELOG.md and in the "改动说明" section
+of README.md.
+
+Third-party work
+----------------
+
+The terminal layout and the upgrade-card system are ported from WCWT /
+AE2WTLib (Minecraft 1.21) by their respective authors; the project skeleton and
+the Gradle build script are inherited from the fork point above. AE2, GregTech,
+GT: New Horizons and the other mods named in README.md remain the property of
+their own authors.
+
+License
+-------
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with
+this program.  If not, see <https://www.gnu.org/licenses/>.

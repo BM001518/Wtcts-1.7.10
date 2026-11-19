@@ -326,7 +326,7 @@ public class PartExExportBus extends PartExportBus implements ExBusScreenHost {
             return;
         }
 
-        this.itemToSend -= drained.getStackSize();
+        this.itemToSend -= ExBusSlots.fluidBudgetSpent(drained.getStackSize());
 
         final IAEStack<?> failed = d.addStack(drained, InsertionMode.DEFAULT);
         if (failed != null) {
@@ -351,7 +351,9 @@ public class PartExExportBus extends PartExportBus implements ExBusScreenHost {
         try {
             this.didSomething = this.exTracker.handleCrafting(
                 slotToExport,
-                this.itemToSend,
+                // The tracker copies this onto the fluid stack it hands to beginCraftingJob, so it has to be
+                // millibuckets: the bus budget counts buckets, and passing it raw asked AE2 for 1 mB jobs.
+                this.itemToSend * (long) ExBusSlots.MIN_FLUID_TRANSFER,
                 afs,
                 this.getTile()
                     .getWorldObj(),

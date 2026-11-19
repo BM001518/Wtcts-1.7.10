@@ -1,0 +1,81 @@
+# Builds the mod on every push and pull request, so a change that stops compiling is caught before it
+# reaches a tag. The GTNH organization's reusable workflow that this file replaces lived in
+# GTNewHorizons/GTNH-Actions-Workflows and is only usable from inside that organization, which is why
+# this repository keeps its own copy.
+#
+# Compiling here is not a full runtime test: the mod itself is only exercised by launching the game.
+
+name: Build
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout mod repo
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      # The build asks for more than one JDK: the GTNH toolchain (8/17/21), plus whatever
+      # gradle/gradle-daemon-jvm.properties names for the Gradle daemon (25 in this project, which
+      # enableModernJavaSyntax = jvmDowngrader compiles against and then downgrades to 8).
+      - name: Determine JDK versions
+        id: list-jdk-versions
+        shell: bash
+        run: |
+          (
+            echo 'java-versions<<EOF'
+            echo 8
+            echo 17
+            echo 21
+            if [[ -f gradle/gradle-daemon-jvm.properties ]]; then
+              # Read the Gradle daemon's JDK straight out of the properties file, so the workflow does
+              # not depend on whatever yq version (or absence of one) the runner image happens to have.
+              sed -n 's/^[[:space:]]*toolchainVersion[[:space:]]*=[[:space:]]*//p' \
+                gradle/gradle-daemon-jvm.properties | head -n1 | tr -d '[:space:]'
+            fi
+            echo EOF
+          ) | tee -a "${GITHUB_OUTPUT}"
+
+      - name: Set up JDK versions
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ steps.list-jdk-versions.outputs.java-versions }}
+          distribution: 'zulu'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          validate-wrappers: true
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Setup the workspace
+        run: ./gradlew --build-cache --stacktrace setupCIWorkspace
+
+      # `build` runs `spotlessCheck` through the GTNH convention plugin, so formatting is verified here
+      # as well. The project has no test sources yet; if any are added, they run here too.
+      - name: Build the mod
+        run: ./gradlew --build-cache --stacktrace build
+
+      - name: Upload the built jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: wtct-jar
+          path: build/libs/*.jar
+          if-no-files-found: error

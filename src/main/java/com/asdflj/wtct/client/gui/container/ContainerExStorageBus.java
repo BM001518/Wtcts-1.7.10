@@ -4,9 +4,11 @@ import static appeng.util.Platform.isServer;
 import static appeng.util.item.AEFluidStackType.FLUID_STACK_TYPE;
 import static appeng.util.item.AEItemStackType.ITEM_STACK_TYPE;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.InventoryPlayer;
@@ -19,6 +21,7 @@ import com.asdflj.wtct.inventory.gui.GuiType;
 
 import appeng.api.config.ActionItems;
 import appeng.api.storage.StorageName;
+import appeng.api.storage.data.AEStackTypeRegistry;
 import appeng.api.storage.data.IAEStack;
 import appeng.api.storage.data.IAEStackType;
 import appeng.api.storage.data.IItemList;
@@ -133,8 +136,9 @@ public class ContainerExStorageBus extends ContainerStorageBus {
 
         PartitionIterators state = PARTITION_ITERATORS.get(player);
         if (state == null) {
-            state = new PartitionIterators();
-            state.it = this.buildIterator(ITEM_STACK_TYPE);
+            state = new PartitionIterators(this.partitionTypes());
+            state.it = this.buildIterator(state.types.get(0));
+            state.typeIndex = 1;
             PARTITION_ITERATORS.put(player, state);
             this.partitionMode = ActionItems.NEXT_PARTITION;
         }
@@ -171,18 +175,38 @@ public class ContainerExStorageBus extends ContainerStorageBus {
     }
 
     /**
-     * The next stack of the sweep, switching from the item round to the fluid one the moment the items run
-     * dry - the fluids continue into the same page instead of starting one of their own, so the two views
-     * never overwrite each other's slots.
+     * The next stack of the sweep, moving on to the next view the moment one runs dry - the fluid round continues
+     * into the same page as the items, and every further stack type the AE2 build registers (essentia, if Thaumic
+     * Energistics is installed) follows, so no view can overwrite another's slots.
      */
     private IAEStack<?> nextPartitionStack(final PartitionIterators state) {
-        IAEStack<?> is = state.it.next();
-        if (is != null || state.fluidRound) {
-            return is;
+        while (true) {
+            final IAEStack<?> is = state.it.next();
+            if (is != null) {
+                return is;
+            }
+            if (state.typeIndex >= state.types.size()) {
+                return null;
+            }
+            state.it = this.buildIterator(state.types.get(state.typeIndex++));
         }
-        state.fluidRound = true;
-        state.it = this.buildIterator(FLUID_STACK_TYPE);
-        return state.it.next();
+    }
+
+    /**
+     * The views the sweep walks, in the order the bus should fill the grid: items first, then fluids, then any other
+     * stack type the running AE2 registers. The last part matters for Thaumic Energistics' essentia, which lives in
+     * the same shared config grid and is invisible to the sweep only because nobody used to ask for it.
+     */
+    private List<IAEStackType<?>> partitionTypes() {
+        final List<IAEStackType<?>> types = new ArrayList<>();
+        types.add(ITEM_STACK_TYPE);
+        types.add(FLUID_STACK_TYPE);
+        for (final IAEStackType<?> type : AEStackTypeRegistry.getAllTypes()) {
+            if (type != ITEM_STACK_TYPE && type != FLUID_STACK_TYPE && !types.contains(type)) {
+                types.add(type);
+            }
+        }
+        return types;
     }
 
     /**
@@ -221,10 +245,15 @@ public class ContainerExStorageBus extends ContainerStorageBus {
         }
     }
 
-    /** One player's partition sweep: where the walk stands and which view it is currently reading. */
+    /** One player's partition sweep: where the walk stands and which views are still to walk. */
     private static final class PartitionIterators {
 
+        final List<IAEStackType<?>> types;
+        int typeIndex;
         IteratorState it;
-        boolean fluidRound;
+
+        PartitionIterators(final List<IAEStackType<?>> types) {
+            this.types = types;
+        }
     }
 }

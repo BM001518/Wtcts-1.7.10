@@ -23,6 +23,31 @@ public interface IGuiMonitor extends ISortSource {
 
     void postStackUpdate(List<? extends IAEStack<?>> list);
 
+    /**
+     * Applies one window's worth of lists in a single pass.
+     *
+     * <p>
+     * The item, fluid and essentia lists arrive in separate packets but all land in the same repo, so
+     * a terminal that applies them one at a time rebuilds and re-sorts its view once per list. This
+     * entry point lets an implementation merge every stack first and rebuild once; the default keeps
+     * the old per-list behaviour for the simpler screens.
+     */
+    default void postStackUpdateBatched(List<? extends IAEStack<?>> list) {
+        if (list != null && !list.isEmpty()) {
+            postStackUpdate(list);
+        }
+    }
+
+    /**
+     * Paints an already sorted snapshot (what the previous session showed) without rebuilding the view.
+     * Only the optimistic screen uses this; see {@link AdvItemRepo#adoptSnapshot}.
+     */
+    default void restoreCachedSnapshot(List<? extends IAEStack<?>> stacks, List<? extends IAEStack<?>> sortedView) {
+        if (stacks != null && !stacks.isEmpty()) {
+            postStackUpdate(stacks);
+        }
+    }
+
     void setScrollBar();
 
     AdvItemRepo getRepo();

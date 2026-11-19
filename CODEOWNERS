@@ -1,3 +1,2 @@
-# Any Github changes require admin approval
-/.github/** @GTNewHorizons/admin
-
+# Changes to the repository's own tooling (workflows, issue templates) go through the maintainer.
+/.github/** @BM001518

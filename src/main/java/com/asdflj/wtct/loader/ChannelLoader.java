@@ -193,7 +193,12 @@ public class ChannelLoader implements Runnable {
         "SPacketTypeFilter",
         // Appended rather than inserted alphabetically: the discriminator is a packet's index in this
         // table, so a new entry at the end leaves every existing packet on the id it already had.
-        "CPacketInventoryRequest");
+        "CPacketInventoryRequest",
+        // Essentia list of the comprehensive terminal (Thaumic Energistics' AEStack type). Appended so
+        // every packet that existed before keeps the id it already had.
+        "SPacketMEEssentiaInvUpdate",
+        // The magnet keybinding. Appended for the same reason.
+        "CPacketCycleMagnetMode");
 
     private static int discriminator(final String packetName) {
         final String simple = packetName.substring(packetName.lastIndexOf('.') + 1);

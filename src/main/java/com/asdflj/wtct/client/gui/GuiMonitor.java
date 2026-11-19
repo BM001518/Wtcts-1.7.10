@@ -242,6 +242,14 @@ public abstract class GuiMonitor extends BaseMEGui implements IConfigManagerHost
             return super.handleVirtualSlotClick(virtualSlot, mouseButton);
         }
         saveSearchString();
+        // Essentia (and any other type AE2 or an addon registers beyond items and fluids) is display
+        // only here: the click paths below all end in an item or fluid monitorable action, and feeding
+        // them a null item stack is what used to open an amount dialog for something that cannot be
+        // moved. Swallowing the click keeps such rows inert instead.
+        final IAEStack<?> clicked = virtualSlot.getAEStack();
+        if (clicked != null && !(clicked instanceof IAEItemStack) && !(clicked instanceof IAEFluidStack)) {
+            return true;
+        }
         final EntityPlayer player = Minecraft.getMinecraft().thePlayer;
 
         // AEF-style favourites: shift + the pick-item key (middle mouse by default) pins the hovered stack,
@@ -383,7 +391,9 @@ public abstract class GuiMonitor extends BaseMEGui implements IConfigManagerHost
         // InventoryHandler.getServerGuiElement, which FML runs before it sends the open-window packet,
         // so they reach the client before this screen and are parked rather than dropped. Apply the
         // parked lists before the first frame draws: the grid is full from frame 0, no request needed.
+        final long perfApply = com.asdflj.wtct.util.OpenTimer.begin("client.apply");
         EarlyTerminalLists.applyTo(this);
+        com.asdflj.wtct.util.OpenTimer.end("client.apply", perfApply);
 
         this.maxRows = this.getMaxRows();
         this.perRow = AEConfig.instance.getConfigManager()

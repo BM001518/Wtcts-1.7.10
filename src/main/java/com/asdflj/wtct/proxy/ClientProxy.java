@@ -6,8 +6,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
 import net.minecraftforge.client.event.GuiScreenEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.common.MinecraftForge;
@@ -38,6 +41,7 @@ import com.asdflj.wtct.loader.ListenerLoader;
 import com.asdflj.wtct.loader.RenderLoader;
 import com.asdflj.wtct.nei.recipes.DefaultExtractorLoader;
 import com.asdflj.wtct.network.CPacketCraftRequest;
+import com.asdflj.wtct.util.BaublesUtil;
 import com.asdflj.wtct.util.FindITUtil;
 
 import appeng.api.events.GuiScrollEvent;
@@ -122,6 +126,19 @@ public class ClientProxy extends CommonProxy {
             }
         }
         return false;
+    }
+
+    @Override
+    public void tryOptimisticTerminalOpen(final EntityPlayer player, final ItemStack stack) {
+        if (!(player instanceof EntityClientPlayerMP client) || stack == null) {
+            return;
+        }
+        final int coordinate = BaublesUtil.findBridgeSlot(player, stack);
+        if (coordinate < 0) {
+            com.asdflj.wtct.client.gui.OptimisticTerminalOpen.tryOpen();
+            return;
+        }
+        com.asdflj.wtct.client.gui.OptimisticTerminalOpen.tryOpenStack(client, coordinate);
     }
 
     @Override

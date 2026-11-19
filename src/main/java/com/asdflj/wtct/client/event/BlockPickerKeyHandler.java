@@ -66,12 +66,17 @@ public final class BlockPickerKeyHandler {
         if (picked == null || carries(mc, picked) || mc.thePlayer.inventory.getFirstEmptyStack() < 0) {
             return;
         }
-        // A terminal with the card has to be carried, but which one is the server's business; the
-        // client only sends the block it is looking at.
+        // A terminal with the card has to be carried, but which one is the server's business. The stack
+        // itself is resolved here and travels with the request: Block#getPickBlock is @SideOnly(CLIENT)
+        // in 1.7.10, so the server cannot run it without throwing NoSuchMethodError inside the packet
+        // handler - which used to kill the channel and drop the player from the server.
         final NBTTagCompound tag = new NBTTagCompound();
         tag.setInteger("x", target.blockX);
         tag.setInteger("y", target.blockY);
         tag.setInteger("z", target.blockZ);
+        final NBTTagCompound pickedTag = new NBTTagCompound();
+        picked.writeToNBT(pickedTag);
+        tag.setTag("Picked", pickedTag);
         Wtct.proxy.netHandler.sendToServer(new CPacketTerminalBtns("CardConfig.PickBlock", 0, tag));
     }
 

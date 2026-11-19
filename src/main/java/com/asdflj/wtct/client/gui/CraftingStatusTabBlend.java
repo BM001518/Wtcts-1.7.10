@@ -19,19 +19,19 @@ import org.lwjgl.opengl.GL11;
  * in the button pass, and the state has to hold for all of them; the previous state is restored at the
  * end so the rest of the HUD is unaffected.
  */
-final class CraftingStatusTabBlend {
+public final class CraftingStatusTabBlend {
 
     private CraftingStatusTabBlend() {}
 
     /** Enables straight-alpha blending; returns whether it was already on, for {@link #restore}. */
-    static boolean enable() {
+    public static boolean enable() {
         final boolean wasEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         return wasEnabled;
     }
 
-    static void restore(final boolean wasEnabled) {
+    public static void restore(final boolean wasEnabled) {
         if (!wasEnabled) {
             GL11.glDisable(GL11.GL_BLEND);
         }

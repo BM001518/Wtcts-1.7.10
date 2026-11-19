@@ -16,6 +16,7 @@ import com.asdflj.wtct.Wtct;
 import com.asdflj.wtct.client.textures.BlockTexture;
 import com.asdflj.wtct.common.item.BaseItemBlock;
 import com.asdflj.wtct.common.nethub.NetHubStorage;
+import com.asdflj.wtct.common.nethub.NetHubUtil;
 import com.asdflj.wtct.common.nethub.Network;
 import com.asdflj.wtct.common.nethub.Perm;
 import com.asdflj.wtct.common.tabs.WtctTabs;
@@ -58,6 +59,24 @@ public class BlockNetworkHub extends BaseTileBlock implements IRegister<BlockNet
 
         ItemStack held = player.inventory.getCurrentItem();
         if (held != null && player.isSneaking() && Platform.isWrench(player, held, x, y, z)) {
+            Network hubNetwork = NetHubStorage.get(w)
+                .getNetwork(hub.getNetworkUuid());
+            // This path bypasses the block-break event on purpose, which also meant it bypassed every permission
+            // check: any player with a wrench could take another player's hub - head included - and leave the
+            // network pointing at air with every receiver still holding its dead grid connection.
+            boolean mayRemove = hubNetwork != null ? hubNetwork.hasPermission(player, Perm.ADMIN)
+                : hub.getOwnerUuid() == null || hub.getOwnerUuid()
+                    .equals(
+                        player.getGameProfile()
+                            .getId())
+                    || NetHubUtil.isPlayerOp(player);
+            if (!mayRemove) {
+                player.addChatMessage(new ChatComponentTranslation(NameConst.MESSAGE_NETWORK_HUB_NO_PERMISSION));
+                return true;
+            }
+            // setBlockToAir never runs breakBlock, so the link has to be dropped here or the network record would
+            // survive with a send position in mid-air.
+            hub.breakConnection();
             w.setBlockToAir(x, y, z);
             w.spawnEntityInWorld(new EntityItem(w, x + 0.5D, y + 0.5D, z + 0.5D, new ItemStack(this)));
             return true;

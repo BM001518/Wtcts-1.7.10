@@ -13,6 +13,7 @@ import net.minecraft.inventory.Container;
 import net.minecraft.inventory.ICrafting;
 import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.network.play.server.S2FPacketSetSlot;
 import net.minecraftforge.common.util.ForgeDirection;
 import net.minecraftforge.fluids.FluidContainerRegistry;
@@ -27,6 +28,7 @@ import com.asdflj.wtct.client.gui.container.BaseMonitor.FluidMonitor;
 import com.asdflj.wtct.client.gui.container.BaseMonitor.ItemMonitor;
 import com.asdflj.wtct.integration.Mods;
 import com.asdflj.wtct.inventory.item.INetworkTerminal;
+import com.asdflj.wtct.inventory.item.WirelessDualInterfaceTerminalInventory;
 import com.asdflj.wtct.network.SPacketMEItemInvUpdate;
 import com.asdflj.wtct.network.SPacketTypeFilter;
 import com.asdflj.wtct.util.HBMAeAddonUtil;
@@ -103,6 +105,40 @@ public abstract class ContainerMonitor extends BaseNetworkContainer implements I
             }
             this.serverCM = monitorable.getConfigManager();
             this.setMonitor();
+        } else {
+            this.readClientSettings(monitorable);
+        }
+    }
+
+    /**
+     * Seeds the client's mirror of the terminal settings from the terminal item's saved NBT.
+     *
+     * <p>
+     * AE2's own flow leaves this mirror on the defaults (name order, ascending, all items) and only
+     * pushes the real values from the server in {@link #detectAndSendChanges()} - that is, one tick
+     * after the window opened. The client therefore sorts its first frame by name and only flips to the
+     * player's choice (e.g. mod order) a moment later, which looks like the list "rearranging itself".
+     * The same values are already sitting in the terminal item's NBT (the host writes them there
+     * whenever the setting changes), so the mirror can start correct. The server still re-asserts the
+     * values on its first tick; with this seed they match and no packet is sent at all.
+     *
+     * <p>
+     * Only item based hosts are read: their NBT is a client-side copy of the server's, whereas a part
+     * or tile host keeps its settings on the server and would hand back stale data here.
+     */
+    private void readClientSettings(final ITerminalHost monitorable) {
+        if (!(monitorable instanceof WirelessDualInterfaceTerminalInventory host)) {
+            return;
+        }
+        final ItemStack stack = host.getItemStack();
+        final NBTTagCompound saved = stack == null ? null : stack.getTagCompound();
+        if (saved == null) {
+            return;
+        }
+        try {
+            this.clientCM.readFromNBT(saved);
+        } catch (final RuntimeException ignored) {
+            // A malformed tag must never stop the terminal from opening.
         }
     }
 

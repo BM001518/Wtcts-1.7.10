@@ -12,6 +12,7 @@ import net.minecraft.world.World;
 import net.minecraftforge.common.util.ForgeDirection;
 import net.minecraftforge.event.ForgeEventFactory;
 
+import com.asdflj.wtct.Wtct;
 import com.asdflj.wtct.api.IAnyTierElectricItem;
 import com.asdflj.wtct.api.WirelessObject;
 import com.asdflj.wtct.common.item.card.CardTicker;
@@ -114,7 +115,15 @@ public abstract class ItemBaseWirelessTerminal extends ToolWirelessTerminal
     @Override
     public ItemStack onItemRightClick(final ItemStack item, final World w, final EntityPlayer player) {
         if (ForgeEventFactory.onItemUseStart(player, item, 1) > 0) {
-            if (Platform.isClient()) return item;
+            if (Platform.isClient()) {
+                // Right-clicking the comprehensive terminal can show its screen before the server's window
+                // packet arrives; the proxy does nothing on a dedicated server and nothing for the other
+                // terminals, which keep the server-first path.
+                if (this instanceof ItemComprehensiveWorkTerminal) {
+                    Wtct.proxy.tryOptimisticTerminalOpen(player, item);
+                }
+                return item;
+            }
             IWirelessTermRegistry term = AEApi.instance()
                 .registries()
                 .wireless();

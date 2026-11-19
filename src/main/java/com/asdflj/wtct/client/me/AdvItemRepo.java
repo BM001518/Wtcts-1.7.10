@@ -3,6 +3,7 @@ package com.asdflj.wtct.client.me;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
@@ -159,6 +160,54 @@ public class AdvItemRepo extends ItemRepo implements Runnable {
             this.gui.setScrollBar();
         } finally {
             lock.unlock();
+        }
+    }
+
+    /**
+     * A copy of the order the terminal is currently showing. The optimistic screen paints this while
+     * the server is still busy; see {@link #adoptSnapshot}.
+     */
+    public List<IAEStack<?>> snapshotView() {
+        lock.lock();
+        try {
+            return new ArrayList<>(this.view);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Installs a list and an already sorted view without rebuilding the view.
+     *
+     * <p>
+     * A full {@link #updateView()} costs ~17 ms for a large network (it resolves a sort key - display
+     * name, mod id - for every stack before sorting), which is far too much to pay on the first frame
+     * of a screen whose only job is to not look empty while the server answers. The snapshot taken by
+     * {@link #snapshotView()} is already in display order, so it can be dropped straight into both
+     * lists; the first real update replaces it wholesale a moment later.
+     */
+    public void adoptSnapshot(final List<? extends IAEStack<?>> stacks, final List<? extends IAEStack<?>> sorted) {
+        final AdvItemRepo target = this.hasCache() ? this.repo : this;
+        lock.lock();
+        try {
+            for (final IAEStack<?> stack : stacks) {
+                if (stack != null) {
+                    target.list.add(stack);
+                }
+            }
+            target.view.clear();
+            target.view.ensureCapacity(sorted.size());
+            target.view.addAll(sorted);
+            if (target != this) {
+                this.view.clear();
+                this.view.ensureCapacity(sorted.size());
+                this.view.addAll(sorted);
+            }
+        } finally {
+            lock.unlock();
+        }
+        if (this.gui != null) {
+            this.gui.setScrollBar();
         }
     }
 

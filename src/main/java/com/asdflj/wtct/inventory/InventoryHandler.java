@@ -34,6 +34,7 @@ public class InventoryHandler implements IGuiHandler {
     }
 
     public static void switchGui(GuiType guiType) {
+        com.asdflj.wtct.util.OpenTimer.request();
         Wtct.proxy.netHandler.sendToServer(new CPacketSwitchGuis(guiType));
     }
 
@@ -69,6 +70,12 @@ public class InventoryHandler implements IGuiHandler {
         }
         ForgeDirection face = ForgeDirection.getOrientation(faceOrd);
         GuiType type = GuiType.getByOrdinal(id >>> 3);
-        return type != null ? type.guiFactory.createClientGui(player, world, x, y, z, face) : null;
+        if (type == null) {
+            return null;
+        }
+        // The optimistic screen is already on display: it takes this window's container instead of
+        // being torn down and rebuilt (39-57 ms of initGui plus a full item-list sort, measured).
+        return com.asdflj.wtct.client.gui.OptimisticTerminalOpen
+            .handOver(type.guiFactory.createClientGui(player, world, x, y, z, face));
     }
 }

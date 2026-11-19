@@ -27,6 +27,7 @@ import net.minecraftforge.fluids.FluidStack;
 
 import com.asdflj.wtct.Wtct;
 import com.asdflj.wtct.api.Constants;
+import com.asdflj.wtct.client.gui.container.BaseMonitor.EssentiaSync;
 import com.asdflj.wtct.client.gui.container.slot.SlotTicCraftingTerm;
 import com.asdflj.wtct.client.gui.container.widget.IWidgetPatternContainer;
 import com.asdflj.wtct.common.item.card.CardTicker;
@@ -37,9 +38,11 @@ import com.asdflj.wtct.inventory.item.INetworkTerminal;
 import com.asdflj.wtct.network.SPacketAutoFillPending;
 import com.asdflj.wtct.network.SPacketCraftableKeys;
 import com.asdflj.wtct.util.Ae2Reflect;
+import com.asdflj.wtct.util.AspectUtil;
 import com.asdflj.wtct.util.BaublesUtil;
 import com.asdflj.wtct.util.GTUtil;
 import com.asdflj.wtct.util.NeCharUtil;
+import com.asdflj.wtct.util.OpenTimer;
 import com.asdflj.wtct.util.PHUtil;
 import com.asdflj.wtct.util.PatternScaling;
 import com.asdflj.wtct.util.ProviderSlotSync;
@@ -218,17 +221,64 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
      * Pattern providers of the network, for the management area. {@code null} when the host is not an
      * interface terminal, in which case the area stays empty.
      */
+    /**
+     * The interface terminal sub-container the pattern management area reads providers from.
+     *
+     * <p>
+     * AE2's own terminal container: it scans every reachable interface and keeps each one's pattern
+     * inventory, which is what the management list shows and what uploads target.
+     */
     private final ContainerInterfaceTerminal providerRegistry;
+
     /**
      * Pushes provider slot contents the client has not been told about, so the management list follows
      * the network live when a pattern is put in or taken out - by this terminal's upload buttons, by the
      * interface's own GUI, or by automation. See {@link ProviderSlotSync}.
      */
     private final ProviderSlotSync providerSlotSync;
+    /** Set once the first server sync has been timed, so only the opening cost is logged. */
+    private boolean perfSynced;
+    /**
+     * Thaumcraft essentia is its own AEStack type in the AE2 fork this mod targets, so it needs its own
+     * diff/push channel next to the item and fluid monitors. Inert when Thaumic Energistics is absent.
+     * <p>
+     * Deliberately not initialised at declaration: {@link ContainerMonitor}'s constructor calls the
+     * overridable {@link #setMonitor()}, which runs before this class' field initialisers, so a field
+     * initialiser would still be null there. {@link #essentiaSync()} creates it on first use instead.
+     */
+    private EssentiaSync essentiaSync;
+    /** Set once {@link #essentiaSync} failed to initialise (Thaumic Energistics not installed). */
+    private boolean essentiaSyncUnavailable;
+
+    /** Lazy accessor for {@link #essentiaSync}; see the field comment for why it cannot be a final field. */
+    private EssentiaSync essentiaSync() {
+        if (this.essentiaSyncUnavailable) {
+            return null;
+        }
+        EssentiaSync sync = this.essentiaSync;
+        if (sync == null) {
+            try {
+                sync = this.essentiaSync = new EssentiaSync();
+            } catch (final Throwable ignored) {
+                // Thaumic Energistics absent: EssentiaSync's signature mentions AEEssentiaStack, so the
+                // class itself may fail to link. Remember it and stay inert for the rest of the session.
+                this.essentiaSyncUnavailable = true;
+                return null;
+            }
+        }
+        return sync;
+    }
+
     /** True when the last {@link #encode()} actually produced a pattern. */
     private boolean encodeSucceeded;
 
     public ContainerComprehensiveWorkTerminal(InventoryPlayer ip, ITerminalHost monitorable) {
+        // The same constructor runs on both sides; timing it separately is what tells "waiting for the
+        // server" apart from "the server was slow building it".
+        final boolean perfServer = appeng.util.Platform.isServer();
+        final String perfSide = perfServer ? "server.ctor" : "client.ctor";
+        final String perfProviderKey = perfServer ? "server.provider" : "client.provider";
+        final long perfStart = OpenTimer.begin(perfSide);
         super(ip, monitorable);
         this.lockSlot();
         this.setupPatternSlots(ip);
@@ -244,10 +294,14 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
         // The pattern management area lists the network's pattern providers through AE2's own
         // interface terminal, exactly like the wireless dual-interface terminal does: this terminal's
         // host is a WirelessDualInterfaceTerminalInventory, which implements IInterfaceTerminal.
+        final long perfProvider = OpenTimer.begin(perfProviderKey);
         this.providerRegistry = monitorable instanceof IInterfaceTerminal anchor
             ? new ContainerInterfaceTerminal(ip, anchor)
             : null;
+        OpenTimer.end(perfProviderKey, perfProvider);
         this.providerSlotSync = new ProviderSlotSync(this.providerRegistry);
+        OpenTimer.end(perfSide, perfStart);
+        OpenTimer.log(perfSide, perfProviderKey, perfSide);
         // Last: the layout the first frame is drawn with has to be the real one.
         this.seedOptionsFromHost();
     }
@@ -289,6 +343,20 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
     }
 
     /**
+     * The essentia list has no place in {@code ContainerMonitor.addCraftingToCrafters}, which only knows
+     * the item and fluid monitors - without this push a freshly opened terminal would start with no
+     * essentia rows and only pick them up once something in the network moved.
+     */
+    @Override
+    public void addCraftingToCrafters(final ICrafting c) {
+        super.addCraftingToCrafters(c);
+        final EssentiaSync sync = this.essentiaSync();
+        if (sync != null) {
+            sync.queueInventory(c);
+        }
+    }
+
+    /**
      * The comprehensive terminal's own half of {@code ContainerMonitor.resendInventory}: the provider
      * list travels the same route as the item list and is dropped by the same gate - AE2's
      * {@code PacketInterfaceTerminalUpdate} is applied only while the terminal's screen is up - so the
@@ -299,6 +367,11 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
     public void resendInventory(final ICrafting c) {
         super.resendInventory(c);
         Ae2Reflect.forceInterfaceListResend(this.providerRegistry);
+        // Essentia is its own list on its own packet; the container has no generic hook for it.
+        final EssentiaSync sync = this.essentiaSync();
+        if (sync != null) {
+            sync.queueInventory(c);
+        }
     }
 
     /** The mode the encoding area is about to be opened in: the edit slot's pattern, else the item's. */
@@ -1228,6 +1301,12 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
     public void processItemList() {
         super.processItemList();
         this.fluidMonitor.processItemList();
+        // Essentia rides a third list: Thaumic Energistics registers it as its own AEStack type, so the
+        // item and fluid monitors above never see it.
+        final EssentiaSync sync = this.essentiaSync();
+        if (sync != null) {
+            sync.processItemList(this.crafters);
+        }
     }
 
     @Override
@@ -1253,6 +1332,18 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
                     }
                     this.fluidMonitor.setMonitor(storageGrid.getFluidInventory(), storageGrid.getItemInventory());
                     this.monitor.setFluidMonitorObject(this.fluidMonitor);
+                    // Essentia (Thaumic Energistics) is a registered AEStack type of its own. ThE is an
+                    // optional runtime dependency, so a missing/broken API must not take the terminal down.
+                    final EssentiaSync sync = this.essentiaSync();
+                    try {
+                        if (sync != null) {
+                            sync.setMonitor(AspectUtil.getEssentiaMonitor(g));
+                        }
+                    } catch (final Throwable ignored) {
+                        if (sync != null) {
+                            sync.setMonitor(null);
+                        }
+                    }
                     if (this.monitor.getMonitor() == null) {
                         this.setValidContainer(false);
                     } else {
@@ -1383,6 +1474,7 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
     /** Mirrors the mode the host stores, which the "PatternTerminal.CraftMode" packet updates. */
     @Override
     public void detectAndSendChanges() {
+        final long perfSync = this.perfSynced ? 0L : OpenTimer.begin("server.firstSync");
         if (this.it != null) {
             if (appeng.util.Platform.isServer()) {
                 // Mirrored from the host on the server only. The client's own terminal object is a
@@ -1415,15 +1507,24 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
             }
         }
         if (this.providerRegistry != null) {
+            final long perfProviders = perfSync == 0L ? 0L : OpenTimer.begin("server.providers");
             // Contents first: whatever the list has not been told about is queued in the registry's own
             // packet, which the call below then ships.
             this.providerSlotSync.tick();
             // Drives AE2's own row diffing: it notices changes in the provider pattern inventories and
             // pushes them to the client, which is what keeps the management list in step.
             this.providerRegistry.detectAndSendChanges();
+            OpenTimer.end("server.providers", perfProviders);
         }
         this.updateCraftingPreview();
+        final long perfMonitors = perfSync == 0L ? 0L : OpenTimer.begin("server.monitors");
         super.detectAndSendChanges();
+        if (perfSync != 0L) {
+            OpenTimer.end("server.monitors", perfMonitors);
+            OpenTimer.end("server.firstSync", perfSync);
+            OpenTimer.log("server.firstSync", "server.providers", "server.monitors", "server.firstSync");
+            this.perfSynced = true;
+        }
     }
 
     /**
@@ -1455,7 +1556,9 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
         this.providerSlotSync.push(id, slot, stack);
     }
 
-    /** True when the management area has a provider list to show. */
+    /**
+     * True when the management area has a provider list to show.
+     */
     public boolean hasProviderRegistry() {
         return this.providerRegistry != null;
     }
@@ -1727,18 +1830,120 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
     }
 
     /**
+     * How many encodes can be taken back. The terminal only ever uploads one pattern per encode, so the
+     * history is a stack of single patterns; eight covers correcting a few recipes in a row without
+     * keeping a pattern dump alive. The stack lives on the container, which every open creates afresh,
+     * so closing the terminal is what forgets it.
+     */
+    public static final int UPLOAD_UNDO_LIMIT = 8;
+
+    /** One pattern this terminal encoded and handed to a provider, with the copy needed to verify it. */
+    private static final class UploadedPattern {
+
+        private final long providerId;
+        private final int slot;
+        private final ItemStack pattern;
+
+        private UploadedPattern(final long providerId, final int slot, final ItemStack pattern) {
+            this.providerId = providerId;
+            this.slot = slot;
+            this.pattern = pattern;
+        }
+    }
+
+    /** Newest first, so taking the last upload back only has to look at the head. */
+    private final java.util.Deque<UploadedPattern> uploadHistory = new java.util.ArrayDeque<>();
+
+    /** Notes one successful upload; the oldest entry falls off past {@link #UPLOAD_UNDO_LIMIT}. */
+    private void rememberUpload(final long providerId, final int slot, final ItemStack pattern) {
+        this.uploadHistory.addFirst(new UploadedPattern(providerId, slot, pattern.copy()));
+        while (this.uploadHistory.size() > UPLOAD_UNDO_LIMIT) {
+            this.uploadHistory.removeLast();
+        }
+    }
+
+    /**
+     * Takes the last encoded-and-uploaded pattern back - the Shift click on the encode key. The pattern
+     * returns to the edit slot when that is free, so the recipe can be corrected and encoded again, and
+     * to the pattern cache otherwise. The provider slot is verified first: when the player has changed
+     * it since, the record is dropped and nothing is taken (it would be someone else's pattern), while
+     * a full cache keeps the record so the same click works after making room.
+     *
+     * @return true when a pattern really moved back
+     */
+    public boolean undoLastUpload() {
+        final UploadedPattern record = this.uploadHistory.peekFirst();
+        if (record == null) {
+            this.notifyPlayer("wtct.gui.management.undo.empty");
+            return false;
+        }
+        final IInventory patterns = this.providerPatterns(record.providerId);
+        if (patterns == null) {
+            // The interface is gone (broken, or its chunk is not loaded): there is nothing to take back.
+            this.uploadHistory.removeFirst();
+            this.notifyPlayer("wtct.gui.management.undo.gone");
+            return false;
+        }
+        final ItemStack current = patterns.getStackInSlot(record.slot);
+        if (current == null || !ItemStack.areItemStacksEqual(current, record.pattern)) {
+            // The slot no longer holds what this terminal put there - never steal the replacement.
+            this.uploadHistory.removeFirst();
+            this.notifyPlayer("wtct.gui.management.undo.changed");
+            return false;
+        }
+        final ItemStack edit = this.patternSlotOUT.getStack();
+        final boolean toEdit = edit == null;
+        final int cacheSlot = toEdit ? -1 : this.findEmptyPatternCacheSlot();
+        if (!toEdit && (cacheSlot < 0 || this.patternCacheInv == null)) {
+            // Keep the record: after emptying a cache slot the very same click works again.
+            this.notifyPlayer("wtct.gui.management.undo.cache_full");
+            return false;
+        }
+        patterns.setInventorySlotContents(record.slot, null);
+        if (toEdit) {
+            this.patternSlotOUT.putStack(record.pattern.copy());
+        } else {
+            this.patternCacheInv.setInventorySlotContents(cacheSlot, record.pattern.copy());
+        }
+        this.uploadHistory.removeFirst();
+        this.refreshProvider(record.providerId);
+        // The provider slot has no sync route of its own; report the now-empty slot straight away.
+        this.pushProviderSlot(record.providerId, record.slot, null);
+        this.detectAndSendChanges();
+        return true;
+    }
+
+    /** One chat line, translated client-side so each player reads it in their own language. */
+    private void notifyPlayer(final String key) {
+        this.getPlayerInv().player.addChatMessage(new net.minecraft.util.ChatComponentTranslation(key));
+    }
+
+    /**
      * Hands the pattern in the edit slot to a provider - WCWT's automatic transfer after encoding.
      * The target is the selected provider when it can take it, otherwise the first provider whose
      * name matches {@code search}, otherwise the first provider with room.
+     *
+     * <p>
+     * Only providers the player can actually see are candidates. AE2 keeps tracking interfaces that
+     * were switched out of its interface terminal (their patterns still have to be found), so walking
+     * its row map without asking {@link Ae2Reflect#isTrackedVisible} used to hand the pattern to an
+     * interface the management list never showed - the pattern then looked like it vanished.
      */
     public boolean uploadEditSlotPattern(final long preferredId, final String search) {
         final ItemStack pattern = this.patternSlotOUT.getStack();
         if (pattern == null || !(pattern.getItem() instanceof ICraftingPatternItem)) {
             return false;
         }
-        long target = this.providerHasRoom(preferredId) ? preferredId : -1;
+        long target = this.providerVisible(preferredId) && this.providerHasRoom(preferredId) ? preferredId : -1;
         if (target < 0 && search != null && !search.isEmpty()) {
             target = this.findProviderByName(search);
+        }
+        if (target < 0 && (search == null || search.isEmpty())) {
+            // With an empty search box nothing names a provider, and multiblock material requests never
+            // fill that box at all - so "the first interface with a free slot" used to swallow patterns
+            // the player never meant to file there. Keep it in the cache instead, where it stays visible
+            // in the management area and can be uploaded deliberately.
+            return this.stashEditSlotPatternToCache();
         }
         if (target < 0) {
             target = this.findProviderWithRoom();
@@ -1752,6 +1957,8 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
             return false;
         }
         patterns.setInventorySlotContents(free, pattern);
+        // Remembered before the edit slot is emptied: this is the record a Shift click takes back.
+        this.rememberUpload(target, free, pattern);
         this.patternSlotOUT.putStack(null);
         this.lastEditSlotPattern = null; // the edit slot is empty now
         this.refreshProvider(target);
@@ -1860,7 +2067,21 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
         return patterns != null && findFreeProviderSlot(patterns) >= 0;
     }
 
-    /** Ids of every provider, in AE2's own row order. */
+    /**
+     * False when the player switched this provider out of AE2's interface terminal.
+     *
+     * <p>
+     * An unknown id answers true here: that is the "nothing to say against it" case, and
+     * {@link #providerHasRoom} rejects it a moment later anyway.
+     */
+    private boolean providerVisible(final long id) {
+        if (this.providerRegistry == null || id < 0) {
+            return false;
+        }
+        return Ae2Reflect.isTrackedVisible(Ae2Reflect.getTrackedById(this.providerRegistry, id));
+    }
+
+    /** Ids of every provider the management area can show, in AE2's own row order. */
     private List<Long> providerIds() {
         if (this.providerRegistry == null) {
             return Collections.emptyList();
@@ -1869,7 +2090,7 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
         final List<Long> ids = new ArrayList<>(tracked.size());
         for (final Object tracker : tracked.values()) {
             final long id = Ae2Reflect.getTrackedId(tracker);
-            if (id >= 0) {
+            if (id >= 0 && Ae2Reflect.isTrackedVisible(tracker)) {
                 ids.add(id);
             }
         }
@@ -1889,6 +2110,7 @@ public class ContainerComprehensiveWorkTerminal extends BasePatternContainerMoni
             .values()) {
             final String name = Ae2Reflect.getTrackedName(tracker);
             if (name != null && NeCharUtil.INSTANCE.contains(needle, name.toLowerCase(java.util.Locale.ROOT))
+                && Ae2Reflect.isTrackedVisible(tracker)
                 && findFreeProviderSlot(Ae2Reflect.getTrackedPatterns(tracker)) >= 0) {
                 return Ae2Reflect.getTrackedId(tracker);
             }

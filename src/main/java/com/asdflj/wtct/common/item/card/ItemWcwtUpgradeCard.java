@@ -7,6 +7,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.inventory.IInventory;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTBase;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.util.EnumChatFormatting;
 
@@ -374,14 +375,25 @@ public class ItemWcwtUpgradeCard extends BaseItem implements IUpgradeModule, IRe
      * view are the same data, written back on every change.
      */
     private static NBTTagCompound upgradesTag(final ItemStack terminal) {
-        if (terminal == null) {
+        if (terminal == null || !terminal.hasTagCompound()) {
             return null;
         }
-        final NBTTagCompound data = Platform.openNbtData(terminal);
-        if (!data.hasKey(Constants.UPGRADES)) {
+        final NBTTagCompound data = terminal.getTagCompound();
+        final NBTBase raw = data.getTag(Constants.UPGRADES);
+        if (!(raw instanceof final NBTTagCompound tag)) {
+            // "upgrades" is a shared name: other mods put a byte or a list under it on their own items.
+            // Reading it as a compound threw a ClassCastException straight out of the client key handler
+            // and took the game down, so anything that is not a compound is reported as "no cards" - and
+            // is left exactly as it was, since the item is not ours.
             return null;
         }
-        return data.getCompoundTag(Constants.UPGRADES);
+        return tag;
+    }
+
+    /** One card slot's tag, or null when the slot is missing or does not hold a compound. */
+    private static NBTTagCompound cardTag(final NBTTagCompound upgrades, final int index) {
+        final NBTBase raw = upgrades.getTag("#" + index);
+        return raw instanceof final NBTTagCompound tag ? tag : null;
     }
 
     /** How many cards of that kind the terminal holds. */
@@ -392,7 +404,11 @@ public class ItemWcwtUpgradeCard extends BaseItem implements IUpgradeModule, IRe
         }
         int count = 0;
         for (int i = 0; i < WcwtUpgradesInventory.CARD_SLOTS; i++) {
-            final ItemStack is = Platform.loadItemStackFromNBT(tag.getCompoundTag("#" + i));
+            final NBTTagCompound slot = cardTag(tag, i);
+            if (slot == null) {
+                continue;
+            }
+            final ItemStack is = Platform.loadItemStackFromNBT(slot);
             if (is != null && kindOf(is) == kind) {
                 count++;
             }
@@ -432,7 +448,7 @@ public class ItemWcwtUpgradeCard extends BaseItem implements IUpgradeModule, IRe
         final int energyCardItemId = energyCardItemId();
         int cards = 0;
         for (int i = 0; i < WcwtUpgradesInventory.CARD_SLOTS; i++) {
-            final NBTTagCompound slot = tag.getCompoundTag("#" + i);
+            final NBTTagCompound slot = cardTag(tag, i);
             if (slot == null) {
                 continue;
             }
@@ -468,7 +484,11 @@ public class ItemWcwtUpgradeCard extends BaseItem implements IUpgradeModule, IRe
             return null;
         }
         for (int i = 0; i < WcwtUpgradesInventory.CARD_SLOTS; i++) {
-            final ItemStack is = Platform.loadItemStackFromNBT(tag.getCompoundTag("#" + i));
+            final NBTTagCompound slot = cardTag(tag, i);
+            if (slot == null) {
+                continue;
+            }
+            final ItemStack is = Platform.loadItemStackFromNBT(slot);
             if (is != null && kindOf(is) == kind) {
                 return is;
             }

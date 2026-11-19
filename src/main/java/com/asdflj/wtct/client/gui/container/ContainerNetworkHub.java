@@ -176,9 +176,27 @@ public class ContainerNetworkHub extends AEBaseContainer {
                 this.sync();
             }
             case "create-network" -> {
+                // The only action that hands out OWNER rights, and the only one that had no check at all: anyone who
+                // could open an unconfigured hub's screen became owner of a fresh group, and a member could turn a
+                // receiver of someone else's network into a brand-new head while its old grid connection stayed live.
+                // Found a network only on a hub that is not part of one yet, and only by the player who placed it
+                // (or an operator, or on hubs placed before the owner was persisted).
+                UUID hubOwner = this.hub.getOwnerUuid();
+                boolean mayClaim = hubOwner == null || hubOwner.equals(
+                    player.getGameProfile()
+                        .getId())
+                    || NetHubUtil.isPlayerOp(player);
+                if (this.hub.getNetworkUuid() != null || !mayClaim) {
+                    this.noPermission(player);
+                    this.sync();
+                    break;
+                }
+                String name = payload.getString("string")
+                    .trim();
+                if (name.isEmpty()) name = "Network";
                 Network network = storage.createNetwork(
                     player,
-                    payload.getString("string"),
+                    name,
                     false,
                     new BlockPosDim(
                         this.hub.xCoord,
@@ -225,7 +243,10 @@ public class ContainerNetworkHub extends AEBaseContainer {
             case "delete-network" -> {
                 Network network = storage.getNetwork(this.selectedNetwork);
                 if (network != null && network.hasPermission(player, Perm.ADMIN)) {
-                    storage.removeNetwork(this.selectedNetwork);
+                    // Deleting used to drop only the record: the head kept reporting itself as a head and every
+                    // receiver kept bridging and drawing idle power until its own next tick - or forever, if its
+                    // chunk was unloaded. Tear the link down now instead.
+                    TileNetworkHub.teardownNetwork(storage, network);
                     this.selectedNetwork = Objects.equals(this.selectedNetwork, this.hub.getNetworkUuid()) ? null
                         : this.hub.getNetworkUuid();
                     storage.markDirty();
@@ -317,7 +338,10 @@ public class ContainerNetworkHub extends AEBaseContainer {
             }
         }
         for (Group group : this.groups.values()) {
-            if (group.hasPermission(player, Perm.USER)) {
+            // Public (overt) networks are usable by everyone, but Group.hasPermission has no overt bypass, so
+            // without this a non-member would receive the Network and no Group - and the member screen, which
+            // reads the user list from that group, would stay empty.
+            if (group.hasPermission(player, Perm.USER) || this.isOvertGroup(group)) {
                 groupList.appendTag(
                     group.deepCopy()
                         .injectOnlinePlayers()
@@ -328,6 +352,18 @@ public class ContainerNetworkHub extends AEBaseContainer {
         tag.setTag("networks", networkList);
         tag.setTag("groups", groupList);
         return tag;
+    }
+
+    /** True when the group owns at least one public network, i.e. everybody may see its member list. */
+    private boolean isOvertGroup(final Group group) {
+        for (Network network : this.networks.values()) {
+            if (network.isOvert() && group.getUuid() != null
+                && group.getUuid()
+                    .equals(network.getOwner())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Client side: rebuilds the screen's state from what the server sent. */

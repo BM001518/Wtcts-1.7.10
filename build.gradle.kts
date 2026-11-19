@@ -5,11 +5,13 @@ plugins {
 // Working copy is not a git clone, so git-based versioning is disabled (see gradle.properties).
 // Provide an explicit version here.
 //
-// Format: <major>.<minor>.<revision>-rc<GTNH build>. The rcN segment names the GTNH release this
-// build targets and does NOT move when the code changes - rc1 is GTNH 2.9.0-RC-1, and it stays rc1
-// until we target a different GTNH. Every round of changes instead raises the leading numbers, so the
-// jar name always identifies one exact build: 1.0.6-rc1 -> ... -> 1.0.31-rc1 -> ... -> 1.0.48-rc1 -> 1.0.49-rc1 -> ...
-extra["modVersion"] = "1.0.63-rc1"
+// Format: <major>.<minor>.<revision>. Upstream appended -rc<GTNH build> (rc1 naming GTNH 2.9.0-RC-1)
+// and raised the leading numbers every round of changes; this fork keeps the leading numbers but drops
+// the suffix, so a version names one exact build: 1.0.63-rc1 (upstream) -> 1.1.0.
+//
+// 1.1.0 is this fork's first release: 1.0.63-rc1 (the upstream commit this fork starts from) plus the
+// whole bug-fix pass listed in CHANGELOG.md.
+extra["modVersion"] = "1.1.0"
 
 tasks.withType<JavaCompile>().configureEach {
     options.annotationProcessorPath = configurations.annotationProcessor.get()

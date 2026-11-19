@@ -28,6 +28,7 @@ import com.asdflj.wtct.api.Constants;
 import com.asdflj.wtct.api.WtctAPI;
 import com.asdflj.wtct.client.gui.IGuiMonitorTerminal;
 import com.asdflj.wtct.common.item.ItemComprehensiveWorkTerminal;
+import com.asdflj.wtct.common.item.card.ItemWcwtUpgradeCard;
 import com.asdflj.wtct.integration.Mods;
 import com.asdflj.wtct.inventory.gui.GuiBridgeInvType;
 import com.glodblock.github.client.gui.FCGuiTextField;
@@ -189,6 +190,42 @@ public class Util {
             }
         }
         return -1;
+    }
+
+    /**
+     * Looks up a terminal that has a magnet card installed: the main inventory first, then the Baubles slots, again
+     * answering with a bridge-encoded coordinate.
+     *
+     * <p>
+     * The magnet mode lives on the <em>terminal</em> - that is where {@code CardTicker} reads it - not on the card,
+     * so the keybinding that cycles the mode has to find the terminal and cannot simply look for a magnet card in the
+     * player's inventory.
+     */
+    public static int findMagnetTerminal(EntityPlayer player) {
+        if (player == null) {
+            return -1;
+        }
+        for (int x = 0; x < player.inventory.mainInventory.length; x++) {
+            if (hasMagnetCard(player.inventory.mainInventory[x])) {
+                return GuiBridgeInvType.encode(x, GuiBridgeInvType.PLAYER_INV);
+            }
+        }
+        if (Mods.BAUBLES.isModLoaded()) {
+            IInventory baubles = BaublesUtil.getBaublesInv(player);
+            if (baubles != null) {
+                for (int i = 0; i < baubles.getSizeInventory(); i++) {
+                    if (hasMagnetCard(baubles.getStackInSlot(i))) {
+                        return GuiBridgeInvType.encode(i, GuiBridgeInvType.PLAYER_BAUBLES);
+                    }
+                }
+            }
+        }
+        return -1;
+    }
+
+    private static boolean hasMagnetCard(ItemStack terminal) {
+        return terminal != null && terminal.getItem() != null
+            && ItemWcwtUpgradeCard.isInstalled(terminal, ItemWcwtUpgradeCard.Kind.MAGNET);
     }
 
     public static IGrid getWirelessGrid(EntityPlayer player) {
