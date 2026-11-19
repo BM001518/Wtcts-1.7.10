@@ -172,6 +172,7 @@ cd Wtcts-1.7.10
 - 依赖下载过一次之后，可以 `./gradlew --offline build` 完全离线构建；但**首次**离线会因缺 `jvmdowngrader` 依赖而失败。
 
 - **`libs/` 目录必须保留。** 其中 `hbmaeaddon-1.4-dev.jar` 与 `programmablehatches-0.1.3p50-dev.jar` 是不在 Maven 上的编译期依赖，缺失会直接编译失败。
+- `libs/maven/` 是一个本地 Maven 仓库，只放了 `scala-parser-combinators_2.11:1.0.1`（反编译步骤要用的启动器依赖，公开仓库都没有，见 [libs/maven/README.md](libs/maven/README.md)）。`repositories.gradle` 里的 `vendored` 仓库负责提供它，这样 CI 不必去连已经超时的旧 GTNH 镜像。
 
 CI：`.github/workflows/build.yml` 在 push / PR 时构建并上传 jar；`.github/workflows/release-tags.yml` 在推 tag 时自动建 Release（正文取 `.github/release-notes/<tag>.md`）。
 
