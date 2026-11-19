@@ -37,19 +37,21 @@ jobs:
         id: list-jdk-versions
         shell: bash
         run: |
-          (
+          # Read the Gradle daemon's JDK straight out of the properties file, so the workflow does not
+          # depend on whatever yq version (or absence of one) the runner image happens to have. awk is
+          # used instead of `sed | head` because GitHub runs `bash -eo pipefail`: `head` closing the
+          # pipe early can turn into SIGPIPE (exit 141) and fail the step.
+          {
             echo 'java-versions<<EOF'
             echo 8
             echo 17
             echo 21
             if [[ -f gradle/gradle-daemon-jvm.properties ]]; then
-              # Read the Gradle daemon's JDK straight out of the properties file, so the workflow does
-              # not depend on whatever yq version (or absence of one) the runner image happens to have.
-              sed -n 's/^[[:space:]]*toolchainVersion[[:space:]]*=[[:space:]]*//p' \
-                gradle/gradle-daemon-jvm.properties | head -n1 | tr -d '[:space:]'
+              awk -F= '/^[[:space:]]*toolchainVersion[[:space:]]*=/ { v = $2; gsub(/[[:space:]]/, "", v); print v; exit }' \
+                gradle/gradle-daemon-jvm.properties
             fi
-            echo EOF
-          ) | tee -a "${GITHUB_OUTPUT}"
+            echo 'EOF'
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Set up JDK versions
         uses: actions/setup-java@v5

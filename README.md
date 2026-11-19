@@ -2,7 +2,7 @@
 
 把 AE2 的仓库、手动合成、样板编码与批处理收进一台无线终端，并补上一整套升级卡与可调吞吐的扩展总线。
 
-*Bundles AE2's terminal, crafting, pattern encoding and pattern management into one wireless terminal, plus a full set of upgrade cards and throughput-tunable extended buses.*
+_Bundles AE2's terminal, crafting, pattern encoding and pattern management into one wireless terminal, plus a full set of upgrade cards and throughput-tunable extended buses._
 
 面向 **Minecraft 1.7.10 / GT: New Horizons 2.9.0-RC-1** 的 AE2 扩展模组，modid `wtct`。
 
@@ -10,7 +10,7 @@
 
 ## 关于这个仓库
 
-这是 [233exp / Wtcts-1.7.10](https://github.com/233max258/Wtcts-1.7.10) 的**维护分支**：在上游作者联系不上之后，本分支从上游最后一个提交（`1.0.63-rc1`）接手，修掉一批积累的 bug，并补了几项使用体验上的功能。界面、物品与存档格式与**上游完全兼容**（同一个 modid、同一个包名，直接替换 jar 即可）。
+这是 [233exp / Wtcts-1.7.10](https://github.com/233max258/Wtcts-1.7.10) 的**维护分支**：本分支从上游最后一个提交（`1.0.63-rc1`）接手，修掉一批积累的 bug，并补了几项使用体验上的功能。界面、物品与存档格式与**上游完全兼容**（同一个 modid、同一个包名，直接替换 jar 即可）。
 
 - 版本：**1.1.0**（= 上游 `1.0.63-rc1` + 本节「改动说明」）
 - 维护者：**BM001518**
@@ -44,7 +44,7 @@
 
 ## 改动说明
 
-相对上游 `1.0.63-rc1`，每条一句话。
+相对上游 `1.0.63-rc1`
 
 ### 修复 · 扩展总线与存储
 
@@ -105,16 +105,16 @@
 
 ## 兼容性
 
-| 项 | 版本 |
-|---|---|
-| Minecraft | 1.7.10 |
-| GT: New Horizons | **2.9.0-RC-1** |
+| 项                                 | 版本                 |
+| ---------------------------------- | -------------------- |
+| Minecraft                          | 1.7.10               |
+| GT: New Horizons                   | **2.9.0-RC-1**       |
 | Applied Energistics 2 (Unofficial) | `rv3-beta-1073-GTNH` |
-| GregTech 5 Unofficial | `5.09.54.183` |
-| AE2FluidCraft-Rework | `1.5.110-gtnh` |
-| GTNHLib | `0.11.51` |
-| NotEnoughItems | `2.8.145-GTNH` |
-| Baubles-Expanded | `2.2.24-GTNH` |
+| GregTech 5 Unofficial              | `5.09.54.183`        |
+| AE2FluidCraft-Rework               | `1.5.110-gtnh`       |
+| GTNHLib                            | `0.11.51`            |
+| NotEnoughItems                     | `2.8.145-GTNH`       |
+| Baubles-Expanded                   | `2.2.24-GTNH`        |
 
 以上是开发与测试所用的版本。其它 GTNH 2.9.x 小版本、以及不在表里的 AE2 附属原则上可用，但未逐一验证。版本号唯一来源是 `build.gradle.kts` 里的 `extra["modVersion"]`。
 
@@ -136,15 +136,15 @@
 
 ## 文档
 
-| 文档 | 内容 |
-|---|---|
-| [docs/wtct-bugfix-pass.md](docs/wtct-bugfix-pass.md) | 本轮修复的完整记录：现象、根因、改法 |
-| [docs/wcwt-gui-reference.md](docs/wcwt-gui-reference.md) | 综合终端界面与控件对照（WCWT 1.21 → 1.7.10） |
-| [docs/wcwt-upgrade-cards.md](docs/wcwt-upgrade-cards.md) | 升级卡体系的行为说明 |
-| [docs/wtlib-upgrade-slots.md](docs/wtlib-upgrade-slots.md) | 终端升级槽与卡片互斥规则 |
-| [docs/wcwt-gap-analysis.md](docs/wcwt-gap-analysis.md) | 与 WCWT 1.3.9 的功能差距分析 |
-| [docs/wcwt-todo-checklist.md](docs/wcwt-todo-checklist.md) | 对齐 WCWT 的待办清单（含状态） |
-| [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |
+| 文档                                                       | 内容                                         |
+| ---------------------------------------------------------- | -------------------------------------------- |
+| [docs/wtct-bugfix-pass.md](docs/wtct-bugfix-pass.md)       | 本轮修复的完整记录：现象、根因、改法         |
+| [docs/wcwt-gui-reference.md](docs/wcwt-gui-reference.md)   | 综合终端界面与控件对照（WCWT 1.21 → 1.7.10） |
+| [docs/wcwt-upgrade-cards.md](docs/wcwt-upgrade-cards.md)   | 升级卡体系的行为说明                         |
+| [docs/wtlib-upgrade-slots.md](docs/wtlib-upgrade-slots.md) | 终端升级槽与卡片互斥规则                     |
+| [docs/wcwt-gap-analysis.md](docs/wcwt-gap-analysis.md)     | 与 WCWT 1.3.9 的功能差距分析                 |
+| [docs/wcwt-todo-checklist.md](docs/wcwt-todo-checklist.md) | 对齐 WCWT 的待办清单（含状态）               |
+| [CHANGELOG.md](CHANGELOG.md)                               | 版本变更记录                                 |
 
 ---
 
@@ -162,3 +162,5 @@
 ## 许可证
 
 [GNU General Public License v3.0](LICENSE)。本仓库是 GPL-3.0 作品的衍生作品，分发时同样遵循 GPL-3.0；来源与修改声明见 [NOTICE](NOTICE)。
+
+注：bug修复与文档编写均在DeepSeek Harness上完成，如果有任何问题请及时反馈
